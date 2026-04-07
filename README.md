@@ -155,13 +155,14 @@ bun run test-auth    # Generate test auth tokens
 
 ## Testing
 
-The test suite includes 75 tests across 10 files:
+The test suite includes 87 tests across 11 files:
 
 | Category | Tests | What's tested |
 |----------|-------|---------------|
 | Unit | 33 | Auth logic, env validation, fixtures, all tool parameter schemas |
 | Integration | 26 | Real Supabase queries, auth resolution, cross-user access control, SQL injection safety, edge cases |
-| E2E | 16 | Server startup, health check, OAuth discovery (RFC 8414/9728), MCP protocol, stdio transport, tool listing |
+| E2E (Protocol) | 16 | Server startup, health check, OAuth discovery (RFC 8414/9728), MCP protocol, stdio transport |
+| E2E (MCP Client) | 12 | Full MCP SDK client tests — tools/list, tool calling, prompts, resources, auth guards |
 
 ```bash
 bun test:unit         # Unit tests (no external deps)
