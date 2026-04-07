@@ -35,7 +35,8 @@ const anon = createClient(supabaseUrl, publishableKey, {
 });
 
 const EMAIL = process.argv[2] || "ashay@prospify.co";
-const PASSWORD = "mcp-test-session-2026";
+// Generate a random password each run to avoid committing a known credential
+const PASSWORD = `mcp-test-${crypto.randomUUID()}`;
 
 async function main() {
 	console.log(`Looking for user ${EMAIL}...`);

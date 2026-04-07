@@ -34,14 +34,20 @@ export async function resolveUserId(email: string): Promise<string> {
 		return cached.userId;
 	}
 
-	// Paginate through all users to find the matching email
-	let page = 1;
-	const perPage = 1000;
+	// Look up user by email directly via the auth.users table
+	// This avoids loading all users into memory (previous pagination approach)
+	const { data: lookupResult, error: lookupError } = await adminClient
+		.from("auth.users" as "users")
+		.select("id")
+		.eq("email", email)
+		.single();
 
-	while (true) {
+	// Fallback: if direct query fails (e.g., auth schema not exposed),
+	// use listUsers with a single page scan
+	if (lookupError || !lookupResult) {
 		const { data, error } = await adminClient.auth.admin.listUsers({
-			page,
-			perPage,
+			page: 1,
+			perPage: 1000,
 		});
 
 		if (error) {
@@ -49,26 +55,31 @@ export async function resolveUserId(email: string): Promise<string> {
 		}
 
 		const user = data.users.find((u) => u.email === email);
-		if (user) {
-			// Evict oldest entry if cache is full
-			if (userIdCache.size >= MAX_CACHE_SIZE) {
-				const firstKey = userIdCache.keys().next().value;
-				if (firstKey) userIdCache.delete(firstKey);
-			}
-
-			userIdCache.set(email, {
-				userId: user.id,
-				expiresAt: Date.now() + CACHE_TTL_MS,
-			});
-			return user.id;
+		if (!user) {
+			throw new Error(
+				"No Prospify account found for this email. Please sign up at prospify.app first.",
+			);
 		}
 
-		// No more pages
-		if (data.users.length < perPage) break;
-		page++;
+		// Cache the result
+		if (userIdCache.size >= MAX_CACHE_SIZE) {
+			const firstKey = userIdCache.keys().next().value;
+			if (firstKey) userIdCache.delete(firstKey);
+		}
+		userIdCache.set(email, { userId: user.id, expiresAt: Date.now() + CACHE_TTL_MS });
+		return user.id;
 	}
 
-	throw new Error("No Prospify account found for this email. Please sign up at prospify.app first.");
+	// Direct lookup succeeded
+	if (userIdCache.size >= MAX_CACHE_SIZE) {
+		const firstKey = userIdCache.keys().next().value;
+		if (firstKey) userIdCache.delete(firstKey);
+	}
+	userIdCache.set(email, {
+		userId: lookupResult.id,
+		expiresAt: Date.now() + CACHE_TTL_MS,
+	});
+	return lookupResult.id;
 }
 
 /**

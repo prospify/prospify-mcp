@@ -12,7 +12,7 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY!;
 
 const TEST_EMAIL = process.env.TEST_EMAIL || "ashay@prospify.co";
-const TEST_PASSWORD = "mcp-test-session-2026";
+const TEST_PASSWORD = `mcp-test-${crypto.randomUUID()}`;
 
 /**
  * Get a test user session by signing in with email/password.
