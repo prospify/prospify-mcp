@@ -1,0 +1,255 @@
+/**
+ * Transaction tools — query and manage transactions.
+ */
+
+import type { FastMCP } from "fastmcp";
+import { z } from "zod";
+import { getUserId } from "../auth.js";
+import { supabase } from "../db.js";
+
+export function registerTransactionTools(server: FastMCP) {
+	server.addTool({
+		name: "get-transactions",
+		description:
+			"List the user's transactions with optional filters. Returns transaction name, amount, date, category, account, and split info. Amounts are positive for debits (money spent) and negative for credits/refunds.",
+		parameters: z.object({
+			accountId: z.number().optional().describe("Filter by account ID"),
+			startDate: z.string().optional().describe("Start date (YYYY-MM-DD)"),
+			endDate: z.string().optional().describe("End date (YYYY-MM-DD)"),
+			search: z.string().optional().describe("Search by transaction name"),
+			category: z.string().optional().describe("Filter by category (e.g. FOOD_AND_DRINK)"),
+			limit: z.number().max(100).default(50).describe("Max results (default 50, max 100)"),
+			offset: z.number().default(0).describe("Pagination offset"),
+			includeDeleted: z.boolean().default(false).describe("Include soft-deleted transactions"),
+		}),
+		execute: async (args, { session }) => {
+			const userId = await getUserId(session);
+
+			let query = supabase
+				.from("transactions")
+				.select(
+					"id, plaid_transaction_id, name, amount, effective_amount, date, category, subcategory, card_name, mask, is_splitwise, is_deleted, is_edited, splits, total_credits, credits, pending, logo_url, account_id, is_authorized_user_transaction",
+				)
+				.eq("user_id", userId)
+				.order("date", { ascending: false });
+
+			if (!args.includeDeleted) {
+				query = query.eq("is_deleted", false);
+			}
+			if (args.accountId) {
+				query = query.eq("account_id", args.accountId);
+			}
+			if (args.startDate) {
+				query = query.gte("date", args.startDate);
+			}
+			if (args.endDate) {
+				query = query.lte("date", args.endDate);
+			}
+			if (args.search) {
+				query = query.ilike("name", `%${args.search}%`);
+			}
+			if (args.category) {
+				query = query.eq("category", args.category);
+			}
+
+			query = query.range(args.offset, args.offset + args.limit - 1);
+
+			const { data, error } = await query;
+			if (error) throw new Error(`Failed to fetch transactions: ${error.message}`);
+
+			return JSON.stringify(
+				{
+					count: data?.length ?? 0,
+					transactions: (data ?? []).map((t) => ({
+						id: t.id,
+						plaidTransactionId: t.plaid_transaction_id,
+						name: t.name,
+						amount: Number(t.amount),
+						effectiveAmount: Number(t.effective_amount),
+						date: t.date,
+						category: t.category,
+						subcategory: t.subcategory,
+						cardName: t.card_name,
+						accountMask: t.mask,
+						accountId: t.account_id,
+						isSplitwise: t.is_splitwise,
+						isDeleted: t.is_deleted,
+						isEdited: t.is_edited,
+						hasSplit: !!t.splits,
+						totalCredits: Number(t.total_credits ?? 0),
+						pending: t.pending,
+						isAuthorizedUserTransaction: t.is_authorized_user_transaction,
+					})),
+				},
+				null,
+				2,
+			);
+		},
+	});
+
+	server.addTool({
+		name: "edit-transaction",
+		description:
+			"Edit a transaction's display name, amount, or date. Changes are stored as overrides — original data is preserved.",
+		annotations: { destructiveHint: false, idempotentHint: true },
+		parameters: z.object({
+			transactionId: z.number().describe("Transaction ID (integer)"),
+			name: z.string().optional().describe("New display name"),
+			amount: z.number().positive().optional().describe("New amount (positive number)"),
+			date: z.string().optional().describe("New date (YYYY-MM-DD)"),
+		}),
+		execute: async (args, { session }) => {
+			const userId = await getUserId(session);
+
+			// Get the transaction and verify ownership
+			const { data: tx, error: txErr } = await supabase
+				.from("transactions")
+				.select("id, plaid_transaction_id, name, amount, date, account_id, user_id")
+				.eq("id", args.transactionId)
+				.eq("user_id", userId)
+				.single();
+
+			if (txErr || !tx) throw new Error("Transaction not found or access denied");
+
+			// Upsert override
+			const overrideData: Record<string, unknown> = {
+				plaid_transaction_id: tx.plaid_transaction_id,
+				user_id: userId,
+				original_name: tx.name,
+				original_amount: Number(tx.amount),
+				original_date: tx.date,
+				original_account_id: tx.account_id,
+				updated_at: new Date().toISOString(),
+			};
+
+			if (args.name) overrideData.edited_name = args.name;
+			if (args.amount) overrideData.edited_amount = args.amount;
+			if (args.date) overrideData.edited_date = args.date;
+
+			const { error: upsertErr } = await supabase
+				.from("transaction_overrides")
+				.upsert(overrideData, { onConflict: "plaid_transaction_id" });
+
+			if (upsertErr) throw new Error(`Failed to edit transaction: ${upsertErr.message}`);
+
+			return `Transaction ${args.transactionId} updated successfully.`;
+		},
+	});
+
+	server.addTool({
+		name: "delete-transaction",
+		description:
+			"Soft-delete a transaction (hide it from views). Can be restored later with restore-transaction.",
+		annotations: { destructiveHint: true, idempotentHint: true },
+		parameters: z.object({
+			transactionId: z.number().describe("Transaction ID to delete"),
+		}),
+		execute: async (args, { session }) => {
+			const userId = await getUserId(session);
+
+			const { data: tx, error: txErr } = await supabase
+				.from("transactions")
+				.select("id, plaid_transaction_id, name, amount, date, account_id, user_id")
+				.eq("id", args.transactionId)
+				.eq("user_id", userId)
+				.single();
+
+			if (txErr || !tx) throw new Error("Transaction not found or access denied");
+
+			const { error } = await supabase.from("transaction_overrides").upsert(
+				{
+					plaid_transaction_id: tx.plaid_transaction_id,
+					user_id: userId,
+					is_deleted: true,
+					original_name: tx.name,
+					original_amount: Number(tx.amount),
+					original_date: tx.date,
+					original_account_id: tx.account_id,
+					updated_at: new Date().toISOString(),
+				},
+				{ onConflict: "plaid_transaction_id" },
+			);
+
+			if (error) throw new Error(`Failed to delete transaction: ${error.message}`);
+			return `Transaction "${tx.name}" deleted.`;
+		},
+	});
+
+	server.addTool({
+		name: "restore-transaction",
+		description: "Restore a previously deleted transaction.",
+		parameters: z.object({
+			transactionId: z.number().describe("Transaction ID to restore"),
+		}),
+		execute: async (args, { session }) => {
+			const userId = await getUserId(session);
+
+			const { data: tx } = await supabase
+				.from("transactions")
+				.select("plaid_transaction_id")
+				.eq("id", args.transactionId)
+				.eq("user_id", userId)
+				.single();
+
+			if (!tx) throw new Error("Transaction not found or access denied");
+
+			const { error } = await supabase
+				.from("transaction_overrides")
+				.delete()
+				.eq("plaid_transaction_id", tx.plaid_transaction_id)
+				.eq("user_id", userId);
+
+			if (error) throw new Error(`Failed to restore: ${error.message}`);
+			return `Transaction ${args.transactionId} restored.`;
+		},
+	});
+
+	server.addTool({
+		name: "change-category",
+		description:
+			"Change a transaction's category. Optionally apply the same category to all transactions from the same merchant.",
+		parameters: z.object({
+			transactionId: z.number().describe("Transaction ID"),
+			newCategory: z.string().describe("New category (e.g. FOOD_AND_DRINK, TRAVEL, ENTERTAINMENT)"),
+			applyToAll: z
+				.boolean()
+				.default(false)
+				.describe("Apply this category to all transactions from this merchant"),
+		}),
+		execute: async (args, { session }) => {
+			const userId = await getUserId(session);
+
+			// Update via direct table update (the view is read-only)
+			const { data: tx } = await supabase
+				.from("transactions")
+				.select("id, name, user_id")
+				.eq("id", args.transactionId)
+				.eq("user_id", userId)
+				.single();
+
+			if (!tx) throw new Error("Transaction not found or access denied");
+
+			const { error } = await supabase
+				.from("transactions_table")
+				.update({ category: args.newCategory, updated_at: new Date().toISOString() })
+				.eq("id", args.transactionId);
+
+			if (error) throw new Error(`Failed to update category: ${error.message}`);
+
+			if (args.applyToAll) {
+				// Create/update category rule
+				await supabase.from("category_rules").upsert(
+					{
+						user_id: userId,
+						merchant_name: tx.name,
+						category: args.newCategory,
+						updated_at: new Date().toISOString(),
+					},
+					{ onConflict: "user_id,merchant_name" },
+				);
+			}
+
+			return `Category changed to ${args.newCategory}${args.applyToAll ? " (applied to all matching transactions)" : ""}.`;
+		},
+	});
+}

@@ -1,0 +1,33 @@
+{
+	"name": "prospify-mcp",
+	"version": "0.1.0",
+	"description": "MCP server for Prospify — expose your personal finance data to AI assistants",
+	"type": "module",
+	"main": "src/server.ts",
+	"scripts": {
+		"dev": "bun run --watch src/server.ts",
+		"start": "bun run src/server.ts",
+		"build": "bun build src/server.ts --outdir dist --target node",
+		"lint": "biome lint .",
+		"format": "biome check . --write",
+		"type-check": "tsc --noEmit",
+		"test": "bun test tests/unit tests/integration",
+		"test:unit": "bun test tests/unit",
+		"test:integration": "bun test tests/integration",
+		"test:e2e": "bun test tests/e2e",
+		"test:all": "bun test tests/unit tests/integration tests/e2e",
+		"inspect": "npx fastmcp inspect src/server.ts",
+		"test-auth": "bun run scripts/test-auth.ts",
+		"validate": "bun run scripts/validate-mcp.ts"
+	},
+	"dependencies": {
+		"fastmcp": "^3.34.0",
+		"zod": "^3.24.0",
+		"@supabase/supabase-js": "^2.49.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.8.0",
+		"@types/bun": "latest",
+		"typescript": "^5.7.0"
+	}
+}

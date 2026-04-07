@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.dev
+.env.prod
+.auth/
+*.log
+bun.lock
+coverage/
+.DS_Store
