@@ -16,12 +16,12 @@ export function registerTransactionTools(server: FastMCP) {
 		annotations: { readOnlyHint: true },
 		parameters: z.object({
 			accountId: z.number().optional().describe("Filter by account ID"),
-			startDate: z.string().optional().describe("Start date (YYYY-MM-DD)"),
-			endDate: z.string().optional().describe("End date (YYYY-MM-DD)"),
-			search: z.string().optional().describe("Search by transaction name"),
-			category: z.string().optional().describe("Filter by category (e.g. FOOD_AND_DRINK)"),
+			startDate: z.string().max(10).optional().describe("Start date (YYYY-MM-DD)"),
+			endDate: z.string().max(10).optional().describe("End date (YYYY-MM-DD)"),
+			search: z.string().max(500).optional().describe("Search by transaction name"),
+			category: z.string().max(100).optional().describe("Filter by category (e.g. FOOD_AND_DRINK)"),
 			limit: z.number().max(100).default(50).describe("Max results (default 50, max 100)"),
-			offset: z.number().default(0).describe("Pagination offset"),
+			offset: z.number().min(0).default(0).describe("Pagination offset"),
 			includeDeleted: z.boolean().default(false).describe("Include soft-deleted transactions"),
 		}),
 		execute: async (args, { session }) => {
@@ -96,9 +96,9 @@ export function registerTransactionTools(server: FastMCP) {
 		annotations: { destructiveHint: false, idempotentHint: true },
 		parameters: z.object({
 			transactionId: z.number().describe("Transaction ID (integer)"),
-			name: z.string().optional().describe("New display name"),
+			name: z.string().max(500).optional().describe("New display name"),
 			amount: z.number().positive().optional().describe("New amount (positive number)"),
-			date: z.string().optional().describe("New date (YYYY-MM-DD)"),
+			date: z.string().max(10).optional().describe("New date (YYYY-MM-DD)"),
 		}),
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);
@@ -214,7 +214,7 @@ export function registerTransactionTools(server: FastMCP) {
 		annotations: { destructiveHint: false, idempotentHint: true },
 		parameters: z.object({
 			transactionId: z.number().describe("Transaction ID"),
-			newCategory: z.string().describe("New category (e.g. FOOD_AND_DRINK, TRAVEL, ENTERTAINMENT)"),
+			newCategory: z.string().max(100).describe("New category (e.g. FOOD_AND_DRINK, TRAVEL, ENTERTAINMENT)"),
 			applyToAll: z
 				.boolean()
 				.default(false)

@@ -84,7 +84,7 @@ export function registerCreditTools(server: FastMCP) {
 		description: "Confirm a credit-to-charge match suggestion. Links the credit to the charge.",
 		annotations: { destructiveHint: false },
 		parameters: z.object({
-			suggestionId: z.string().describe("Match suggestion ID to confirm"),
+			suggestionId: z.string().max(200).describe("Match suggestion ID to confirm"),
 		}),
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);
@@ -134,7 +134,7 @@ export function registerCreditTools(server: FastMCP) {
 		description: "Reject a credit-to-charge match suggestion.",
 		annotations: { destructiveHint: false },
 		parameters: z.object({
-			suggestionId: z.string().describe("Match suggestion ID to reject"),
+			suggestionId: z.string().max(200).describe("Match suggestion ID to reject"),
 		}),
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);
@@ -158,7 +158,7 @@ export function registerCreditTools(server: FastMCP) {
 		annotations: { readOnlyHint: true },
 		parameters: z.object({
 			accountId: z.number().optional().describe("Filter by account ID"),
-			search: z.string().optional().describe("Search by transaction name"),
+			search: z.string().max(500).optional().describe("Search by transaction name"),
 		}),
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);
@@ -202,7 +202,7 @@ export function registerCreditTools(server: FastMCP) {
 			chargeTransactionId: z.number().describe("ID of the charge transaction"),
 			creditTransactionId: z.number().describe("ID of the credit/refund transaction"),
 			creditAmount: z.number().positive().describe("Credit amount to apply"),
-			note: z.string().optional().describe("Optional note"),
+			note: z.string().max(1000).optional().describe("Optional note"),
 		}),
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);

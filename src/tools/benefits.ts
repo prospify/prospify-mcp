@@ -216,7 +216,7 @@ export function registerBenefitTools(server: FastMCP) {
 		parameters: z.object({
 			benefitConfigId: z.string().uuid().describe("Benefit config ID"),
 			amountUsed: z.number().positive().describe("Dollar amount used"),
-			note: z.string().optional().describe("Optional note"),
+			note: z.string().max(1000).optional().describe("Optional note"),
 		}),
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);

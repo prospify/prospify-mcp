@@ -29,3 +29,13 @@ export async function verifyAccountOwnership(accountId: number, userId: string):
 		throw new Error("Account not found or access denied");
 	}
 }
+
+/**
+ * Sanitize a Supabase error for client exposure.
+ * Logs the full error internally, returns a generic message to the client.
+ */
+export function safeDbError(operation: string, error: { message: string; code?: string }): Error {
+	// Log full error for debugging (stderr won't go to MCP client)
+	console.error(`[${operation}] DB error:`, error.message, error.code ?? "");
+	return new Error(`${operation} failed. Please try again.`);
+}
