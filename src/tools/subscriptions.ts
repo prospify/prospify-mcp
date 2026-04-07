@@ -36,7 +36,7 @@ export function registerSubscriptionTools(server: FastMCP) {
 					.order("date", { ascending: false })
 					.limit(2000);
 
-				if (txErr) throw new Error(`Failed to fetch transactions: ${txErr.message}`);
+				if (txErr) throw safeDbError("Fetch transactions", txErr);
 				if (!transactions || transactions.length === 0) {
 					return JSON.stringify({ subscriptions: [] });
 				}

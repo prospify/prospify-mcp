@@ -155,7 +155,7 @@ bun run test-auth    # Generate test auth tokens
 
 ## Testing
 
-The test suite includes 119 tests across 13 files:
+The test suite includes 122 tests across 13 files:
 
 | Category | Tests | What's tested |
 |----------|-------|---------------|

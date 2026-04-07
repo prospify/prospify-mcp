@@ -31,7 +31,7 @@ export function registerBenefitTools(server: FastMCP) {
 					)
 					.eq("accounts_table.items_table.user_id", userId);
 
-				if (queryErr) throw new Error(`Failed to fetch cards: ${queryErr.message}`);
+				if (queryErr) throw safeDbError("Fetch cards", queryErr);
 
 				// Filter to cards that have benefit configs
 				const cardIds = [...new Set((cards ?? []).map((c) => c.card_id))];

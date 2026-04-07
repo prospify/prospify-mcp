@@ -132,7 +132,7 @@ export function registerTransactionTools(server: FastMCP) {
 				.from("transaction_overrides")
 				.upsert(overrideData, { onConflict: "plaid_transaction_id" });
 
-			if (upsertErr) throw new Error(`Failed to edit transaction: ${upsertErr.message}`);
+			if (upsertErr) throw safeDbError("Edit transaction", upsertErr);
 
 			return `Transaction ${args.transactionId} updated successfully.`;
 		},

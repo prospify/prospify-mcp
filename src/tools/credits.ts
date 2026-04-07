@@ -118,7 +118,7 @@ export function registerCreditTools(server: FastMCP) {
 				credit_amount: creditAmount,
 			});
 
-			if (linkErr) throw new Error(`Failed to create link: ${linkErr.message}`);
+			if (linkErr) throw safeDbError("Create credit link", linkErr);
 
 			// Update suggestion status
 			await supabase
