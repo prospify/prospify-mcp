@@ -159,11 +159,11 @@ The test suite includes 119 tests across 13 files:
 
 | Category | Tests | What's tested |
 |----------|-------|---------------|
-| Unit | 52 | Auth, env, fixtures, all Zod schemas, LIKE injection prevention, string length limits, security |
-| Integration | 26 | Real Supabase queries, auth resolution, cross-user access control, SQL injection safety, edge cases |
+| Unit | 53 | Auth, env, fixtures, all Zod schemas, LIKE injection prevention, string length limits, security |
+| Integration | 27 | Real Supabase queries, auth resolution, cross-user access control, SQL injection safety, edge cases |
 | E2E (Protocol) | 16 | Server startup, health check, OAuth discovery (RFC 8414/9728), MCP protocol, stdio transport |
 | E2E (MCP Client) | 12 | Full MCP SDK client — tools/list, tool calling, prompts, resources, auth guards |
-| E2E (Validation) | 13 | Tool argument validation, schema rejection, description quality, annotation checks |
+| E2E (Validation) | 11 | Tool argument validation, schema rejection, description quality, annotation checks |
 
 ```bash
 bun test:unit         # Unit tests (no external deps)

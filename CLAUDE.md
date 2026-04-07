@@ -21,14 +21,14 @@ bun test:unit         # Unit tests (no external deps needed)
 bun test:integration  # Integration tests (requires Supabase credentials in .env)
 bun test:e2e          # E2E tests (spawns server processes, tests protocol)
 bun test              # Unit + integration
-bun test:all          # All 75 tests
+bun test:all          # All 119 tests
 bun run validate      # Protocol-level validation (health, OAuth, MCP handshake)
 ```
 
 Test categories:
-- **Unit** (33 tests): Auth logic, env validation, fixtures, all Zod parameter schemas
-- **Integration** (26 tests): Real Supabase queries, auth email→userId resolution, cross-user access control, SQL injection safety, boundary conditions
-- **E2E** (16 tests): HTTP server lifecycle, health endpoint, OAuth RFC 8414/9728 compliance, stdio transport, JSON-RPC protocol, tools/list verification
+- **Unit** (53 tests): Auth logic, env validation, fixtures, all Zod parameter schemas, LIKE injection prevention, string length limits, security
+- **Integration** (27 tests): Real Supabase queries, auth email→userId resolution, cross-user access control, SQL injection safety, boundary conditions
+- **E2E** (39 tests): HTTP server lifecycle, health endpoint, OAuth RFC 8414/9728 compliance, stdio transport, MCP SDK client tests, tool argument validation, annotation checks
 
 ## Linting
 
