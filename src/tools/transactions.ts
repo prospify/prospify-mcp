@@ -6,6 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { getUserId } from "../auth.js";
 import { supabase } from "../db.js";
+import { escapeLikePattern } from "../utils.js";
 
 export function registerTransactionTools(server: FastMCP) {
 	server.addTool({
@@ -47,7 +48,7 @@ export function registerTransactionTools(server: FastMCP) {
 				query = query.lte("date", args.endDate);
 			}
 			if (args.search) {
-				query = query.ilike("name", `%${args.search}%`);
+				query = query.ilike("name", `%${escapeLikePattern(args.search)}%`);
 			}
 			if (args.category) {
 				query = query.eq("category", args.category);
@@ -232,12 +233,15 @@ export function registerTransactionTools(server: FastMCP) {
 
 			if (!tx) throw new Error("Transaction not found or access denied");
 
+			// Defense-in-depth: verify the transaction ID from the ownership-checked view
+			// matches before updating the underlying table
+			const verifiedId = tx.id;
 			const { error } = await supabase
 				.from("transactions_table")
 				.update({ category: args.newCategory, updated_at: new Date().toISOString() })
-				.eq("id", args.transactionId);
+				.eq("id", verifiedId);
 
-			if (error) throw new Error(`Failed to update category: ${error.message}`);
+			if (error) throw new Error("Failed to update category. Please try again.");
 
 			if (args.applyToAll) {
 				// Create/update category rule

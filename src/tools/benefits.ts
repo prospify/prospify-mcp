@@ -6,6 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { getUserId } from "../auth.js";
 import { supabase } from "../db.js";
+import { escapeLikePattern, verifyAccountOwnership } from "../utils.js";
 
 export function registerBenefitTools(server: FastMCP) {
 	server.addTool({
@@ -80,6 +81,7 @@ export function registerBenefitTools(server: FastMCP) {
 		}),
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);
+			await verifyAccountOwnership(args.accountId, userId);
 
 			// Get card details
 			const { data: cardDetails } = await supabase
@@ -143,6 +145,7 @@ export function registerBenefitTools(server: FastMCP) {
 		}),
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);
+			await verifyAccountOwnership(args.accountId, userId);
 
 			// Get card details
 			const { data: cardDetails } = await supabase
@@ -258,6 +261,7 @@ export function registerBenefitTools(server: FastMCP) {
 		}),
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);
+			await verifyAccountOwnership(args.accountId, userId);
 
 			// Get card details
 			const { data: cardDetails } = await supabase
@@ -293,7 +297,8 @@ export function registerBenefitTools(server: FastMCP) {
 				.eq("account_id", args.accountId)
 				.lt("amount", 0) // Credits only
 				.gte("date", sixMonthsAgo.toISOString().slice(0, 10))
-				.eq("is_deleted", false);
+				.eq("is_deleted", false)
+				.limit(5000);
 
 			// Get existing usages to avoid duplicates
 			const configIds = configs.map((c) => c.id);
@@ -353,6 +358,7 @@ export function registerBenefitTools(server: FastMCP) {
 		}),
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);
+			await verifyAccountOwnership(args.accountId, userId);
 
 			const { data, error } = await supabase
 				.from("transactions")
@@ -361,7 +367,7 @@ export function registerBenefitTools(server: FastMCP) {
 				.eq("account_id", args.accountId)
 				.lt("amount", 0)
 				.eq("is_deleted", false)
-				.ilike("name", `%${args.search}%`)
+				.ilike("name", `%${escapeLikePattern(args.search)}%`)
 				.order("date", { ascending: false })
 				.limit(args.limit);
 

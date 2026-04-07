@@ -6,6 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { getUserId } from "../auth.js";
 import { supabase } from "../db.js";
+import { escapeLikePattern } from "../utils.js";
 
 export function registerCreditTools(server: FastMCP) {
 	server.addTool({
@@ -172,7 +173,7 @@ export function registerCreditTools(server: FastMCP) {
 				.limit(50);
 
 			if (args.accountId) query = query.eq("account_id", args.accountId);
-			if (args.search) query = query.ilike("name", `%${args.search}%`);
+			if (args.search) query = query.ilike("name", `%${escapeLikePattern(args.search)}%`);
 
 			const { data, error } = await query;
 			if (error) throw new Error(`Failed to fetch credits: ${error.message}`);
