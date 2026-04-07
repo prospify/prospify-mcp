@@ -353,7 +353,7 @@ export function registerBenefitTools(server: FastMCP) {
 		annotations: { readOnlyHint: true },
 		parameters: z.object({
 			accountId: z.number().describe("Account ID to search"),
-			search: z.string().default("").describe("Search term to match transaction names"),
+			search: z.string().max(500).default("").describe("Search term to match transaction names"),
 			limit: z.number().max(20).default(10).describe("Max results"),
 		}),
 		execute: async (args, { session }) => {

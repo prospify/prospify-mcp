@@ -31,6 +31,19 @@ describe("escapeLikePattern", () => {
 	test("escapes consecutive wildcards", () => {
 		expect(escapeLikePattern("%%%")).toBe("\\%\\%\\%");
 	});
+
+	test("escapes backslash before wildcards", () => {
+		// Backslash must be escaped first to prevent \% bypass
+		expect(escapeLikePattern("\\%")).toBe("\\\\\\%");
+	});
+
+	test("escapes standalone backslash", () => {
+		expect(escapeLikePattern("test\\path")).toBe("test\\\\path");
+	});
+
+	test("handles backslash-underscore combination", () => {
+		expect(escapeLikePattern("\\_")).toBe("\\\\\\_");
+	});
 });
 
 describe("string length limits on tool schemas", () => {

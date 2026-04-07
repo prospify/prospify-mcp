@@ -9,7 +9,7 @@ import { supabase } from "./db.js";
  * Prevents pattern injection in Supabase .ilike() queries.
  */
 export function escapeLikePattern(input: string): string {
-	return input.replace(/%/g, "\\%").replace(/_/g, "\\_");
+	return input.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
 /**
