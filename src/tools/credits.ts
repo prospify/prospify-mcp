@@ -100,11 +100,12 @@ export function registerCreditTools(server: FastMCP) {
 
 			if (!suggestion) throw new Error("Match suggestion not found or already processed");
 
-			// Get the credit amount
+			// Get the credit amount (scoped to user for defense-in-depth)
 			const { data: creditTx } = await supabase
 				.from("transactions")
 				.select("amount")
 				.eq("plaid_transaction_id", suggestion.credit_plaid_transaction_id)
+				.eq("user_id", userId)
 				.single();
 
 			const creditAmount = Math.abs(Number(creditTx?.amount ?? 0));

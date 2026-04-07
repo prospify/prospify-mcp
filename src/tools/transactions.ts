@@ -226,20 +226,19 @@ export function registerTransactionTools(server: FastMCP) {
 			// Update via direct table update (the view is read-only)
 			const { data: tx } = await supabase
 				.from("transactions")
-				.select("id, name, user_id")
+				.select("id, name, user_id, account_id")
 				.eq("id", args.transactionId)
 				.eq("user_id", userId)
 				.single();
 
 			if (!tx) throw new Error("Transaction not found or access denied");
 
-			// Defense-in-depth: verify the transaction ID from the ownership-checked view
-			// matches before updating the underlying table
-			const verifiedId = tx.id;
+			// Defense-in-depth: use both id AND account_id to prevent TOCTOU
 			const { error } = await supabase
 				.from("transactions_table")
 				.update({ category: args.newCategory, updated_at: new Date().toISOString() })
-				.eq("id", verifiedId);
+				.eq("id", tx.id)
+				.eq("account_id", tx.account_id);
 
 			if (error) throw new Error("Failed to update category. Please try again.");
 

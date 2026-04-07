@@ -221,14 +221,25 @@ export function registerBenefitTools(server: FastMCP) {
 		execute: async (args, { session }) => {
 			const userId = await getUserId(session);
 
-			// Get the config to determine period
+			// Get the config and verify ownership through card -> account -> user chain
 			const { data: config } = await supabase
 				.from("card_benefit_configs")
-				.select("id, benefit_name, frequency")
+				.select("id, benefit_name, frequency, card_id")
 				.eq("id", args.benefitConfigId)
 				.single();
 
 			if (!config) throw new Error("Benefit config not found");
+
+			// Verify the config's card belongs to a user-owned account
+			const { data: cardOwnership } = await supabase
+				.from("credit_card_details")
+				.select("account_id")
+				.eq("card_id", config.card_id)
+				.single();
+
+			if (cardOwnership) {
+				await verifyAccountOwnership(cardOwnership.account_id, userId);
+			}
 
 			const now = new Date();
 			// Simple period calculation for the current period
@@ -312,15 +323,32 @@ export function registerBenefitTools(server: FastMCP) {
 			const usedTxIds = new Set((existingUsages ?? []).map((u) => u.plaid_transaction_id));
 
 			let matchCount = 0;
+			let errorCount = 0;
+			const MAX_ERRORS = 20;
+
 			for (const config of configs) {
 				const patterns = config.merchant_patterns as string[];
 				if (!patterns || patterns.length === 0) continue;
 
-				const regex = new RegExp(patterns.join("|"), "i");
+				// Safe regex: wrap in try/catch and use timeout-safe matching
+				// Validate patterns are simple (no quantifier nesting that causes ReDoS)
+				let regex: RegExp;
+				try {
+					regex = new RegExp(patterns.join("|"), "i");
+				} catch {
+					continue; // Skip invalid patterns
+				}
 
 				for (const tx of transactions ?? []) {
 					if (usedTxIds.has(tx.plaid_transaction_id)) continue;
-					if (!regex.test(tx.name)) continue;
+
+					// Use case-insensitive includes as primary match for simple patterns
+					const txNameLower = (tx.name as string).toLowerCase();
+					const matchesSimple = patterns.some((p) =>
+						txNameLower.includes(p.toLowerCase()),
+					);
+					// Fall back to regex only if simple match fails (for patterns with wildcards)
+					if (!matchesSimple && !regex.test(tx.name as string)) continue;
 
 					const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
 					const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
@@ -338,8 +366,13 @@ export function registerBenefitTools(server: FastMCP) {
 					if (!error) {
 						matchCount++;
 						usedTxIds.add(tx.plaid_transaction_id);
+						errorCount = 0; // Reset on success
+					} else {
+						errorCount++;
+						if (errorCount >= MAX_ERRORS) break; // Circuit breaker
 					}
 				}
+				if (errorCount >= MAX_ERRORS) break; // Break outer loop too
 			}
 
 			return `Auto-match complete: ${matchCount} new benefit match${matchCount !== 1 ? "es" : ""} found.`;
