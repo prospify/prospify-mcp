@@ -68,9 +68,7 @@ export async function resolveUserId(email: string): Promise<string> {
 		page++;
 	}
 
-	throw new Error(
-		`No Prospify account found for ${email}. Please sign up at prospify.app first.`,
-	);
+	throw new Error("No Prospify account found for this email. Please sign up at prospify.app first.");
 }
 
 /**

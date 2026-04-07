@@ -224,7 +224,7 @@ export function registerBenefitTools(server: FastMCP) {
 			// Get the config and verify ownership through card -> account -> user chain
 			const { data: config } = await supabase
 				.from("card_benefit_configs")
-				.select("id, benefit_name, frequency, card_id")
+				.select("id, benefit_name, frequency, card_id, amount")
 				.eq("id", args.benefitConfigId)
 				.single();
 
@@ -245,6 +245,29 @@ export function registerBenefitTools(server: FastMCP) {
 			// Simple period calculation for the current period
 			const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
 			const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+			// Cap check: prevent over-reporting benefit usage
+			const configAmount = Number(config.amount);
+			if (configAmount > 0) {
+				const { data: existingUsages } = await supabase
+					.from("benefit_usages")
+					.select("amount_used")
+					.eq("user_id", userId)
+					.eq("benefit_config_id", args.benefitConfigId)
+					.gte("period_start", periodStart.toISOString())
+					.lte("period_end", periodEnd.toISOString());
+
+				const totalUsed = (existingUsages ?? []).reduce(
+					(sum, u) => sum + Number(u.amount_used),
+					0,
+				);
+
+				if (totalUsed + args.amountUsed > configAmount * 2) {
+					throw new Error(
+						`Cannot mark $${args.amountUsed}: would exceed 2x the benefit amount of $${configAmount}.`,
+					);
+				}
+			}
 
 			const { error } = await supabase.from("benefit_usages").insert({
 				user_id: userId,

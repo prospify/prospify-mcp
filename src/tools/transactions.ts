@@ -214,7 +214,11 @@ export function registerTransactionTools(server: FastMCP) {
 		annotations: { destructiveHint: false, idempotentHint: true },
 		parameters: z.object({
 			transactionId: z.number().describe("Transaction ID"),
-			newCategory: z.string().max(100).describe("New category (e.g. FOOD_AND_DRINK, TRAVEL, ENTERTAINMENT)"),
+			newCategory: z
+				.string()
+				.max(100)
+				.regex(/^[A-Z][A-Z0-9_]*$/, "Category must be uppercase with underscores (e.g. FOOD_AND_DRINK)")
+				.describe("New category (e.g. FOOD_AND_DRINK, TRAVEL, ENTERTAINMENT)"),
 			applyToAll: z
 				.boolean()
 				.default(false)
