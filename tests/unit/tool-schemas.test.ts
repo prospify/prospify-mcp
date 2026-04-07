@@ -111,7 +111,10 @@ describe("mark-benefit-used schema", () => {
 describe("change-category schema", () => {
 	const schema = z.object({
 		transactionId: z.number(),
-		newCategory: z.string(),
+		newCategory: z
+			.string()
+			.max(100)
+			.regex(/^[A-Z][A-Z0-9_]*$/),
 		applyToAll: z.boolean().default(false),
 	});
 
@@ -122,6 +125,40 @@ describe("change-category schema", () => {
 
 	test("rejects missing category", () => {
 		expect(() => schema.parse({ transactionId: 1 })).toThrow();
+	});
+
+	test("accepts valid uppercase categories", () => {
+		for (const cat of ["FOOD_AND_DRINK", "TRAVEL", "ENTERTAINMENT", "LOAN_PAYMENTS", "GENERAL_MERCHANDISE"]) {
+			expect(schema.parse({ transactionId: 1, newCategory: cat }).newCategory).toBe(cat);
+		}
+	});
+
+	test("rejects lowercase categories", () => {
+		expect(() => schema.parse({ transactionId: 1, newCategory: "travel" })).toThrow();
+	});
+
+	test("rejects categories with spaces", () => {
+		expect(() => schema.parse({ transactionId: 1, newCategory: "FOOD AND DRINK" })).toThrow();
+	});
+
+	test("rejects XSS attempt in category", () => {
+		expect(() =>
+			schema.parse({ transactionId: 1, newCategory: "<script>alert(1)</script>" }),
+		).toThrow();
+	});
+
+	test("rejects empty category", () => {
+		expect(() => schema.parse({ transactionId: 1, newCategory: "" })).toThrow();
+	});
+
+	test("rejects category starting with number", () => {
+		expect(() => schema.parse({ transactionId: 1, newCategory: "1FOOD" })).toThrow();
+	});
+
+	test("accepts category with numbers", () => {
+		expect(schema.parse({ transactionId: 1, newCategory: "CATEGORY2" }).newCategory).toBe(
+			"CATEGORY2",
+		);
 	});
 });
 

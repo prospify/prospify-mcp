@@ -227,3 +227,19 @@ Check-then-update not atomic — both users can set role simultaneously.
 1. Splitwise OAuth state validation (R2-C3) — enables CSRF account takeover
 2. items.create/delete IDOR (R2-H1, R2-H2) — cross-user item manipulation
 3. Host header injection (R2-C2) — redirect hijacking
+
+### Round 3: Combined Attack Surface (2026-04-07, cross-system)
+
+**MCP regression: 12/12 PASS** — all fixes verified.
+
+#### R3 Fixes Applied to MCP:
+- Category validation: regex `^[A-Z][A-Z0-9_]*$` prevents arbitrary string injection
+- Benefit cap check: prevents reporting >2x the config amount per period
+- Auth error: removed email from "no account found" message (prevents enumeration)
+
+#### R3 Architectural Findings (documented, require design decisions):
+- **HIGH**: Shared service role key — MCP compromise = full DB access. Create scoped key.
+- **MEDIUM**: No concurrency control on shared tables (transaction_overrides, category_rules)
+- **MEDIUM**: `listUsers()` pagination loads all users — switch to single-user lookup
+- **LOW**: benefit_usages allows duplicate manual entries (NULL plaid_transaction_id)
+- **LOW**: ReDoS risk from stored merchant patterns — consider `re2` library
