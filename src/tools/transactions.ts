@@ -6,7 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { getUserId } from "../auth.js";
 import { supabase } from "../db.js";
-import { escapeLikePattern } from "../utils.js";
+import { escapeLikePattern, safeDbError } from "../utils.js";
 
 export function registerTransactionTools(server: FastMCP) {
 	server.addTool({
@@ -57,7 +57,7 @@ export function registerTransactionTools(server: FastMCP) {
 			query = query.range(args.offset, args.offset + args.limit - 1);
 
 			const { data, error } = await query;
-			if (error) throw new Error(`Failed to fetch transactions: ${error.message}`);
+			if (error) throw safeDbError("Fetch transactions", error);
 
 			return JSON.stringify(
 				{
@@ -172,7 +172,7 @@ export function registerTransactionTools(server: FastMCP) {
 				{ onConflict: "plaid_transaction_id" },
 			);
 
-			if (error) throw new Error(`Failed to delete transaction: ${error.message}`);
+			if (error) throw safeDbError("Delete transaction", error);
 			return `Transaction "${tx.name}" deleted.`;
 		},
 	});
@@ -202,7 +202,7 @@ export function registerTransactionTools(server: FastMCP) {
 				.eq("plaid_transaction_id", tx.plaid_transaction_id)
 				.eq("user_id", userId);
 
-			if (error) throw new Error(`Failed to restore: ${error.message}`);
+			if (error) throw safeDbError("Restore transaction", error);
 			return `Transaction ${args.transactionId} restored.`;
 		},
 	});

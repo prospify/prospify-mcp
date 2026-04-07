@@ -6,7 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { getUserId } from "../auth.js";
 import { supabase } from "../db.js";
-import { escapeLikePattern } from "../utils.js";
+import { escapeLikePattern, safeDbError } from "../utils.js";
 
 export function registerCreditTools(server: FastMCP) {
 	server.addTool({
@@ -30,7 +30,7 @@ export function registerCreditTools(server: FastMCP) {
 				.order("confidence_score", { ascending: false })
 				.limit(args.limit);
 
-			if (error) throw new Error(`Failed to fetch matches: ${error.message}`);
+			if (error) throw safeDbError("Fetch matches", error);
 			if (!data || data.length === 0) return JSON.stringify({ matches: [] });
 
 			// Get transaction details for the matched pairs
@@ -147,7 +147,7 @@ export function registerCreditTools(server: FastMCP) {
 				.eq("user_id", userId)
 				.eq("status", "pending");
 
-			if (error) throw new Error(`Failed to reject: ${error.message}`);
+			if (error) throw safeDbError("Reject match", error);
 			return "Match suggestion rejected.";
 		},
 	});
@@ -177,7 +177,7 @@ export function registerCreditTools(server: FastMCP) {
 			if (args.search) query = query.ilike("name", `%${escapeLikePattern(args.search)}%`);
 
 			const { data, error } = await query;
-			if (error) throw new Error(`Failed to fetch credits: ${error.message}`);
+			if (error) throw safeDbError("Fetch credits", error);
 
 			return JSON.stringify(
 				(data ?? []).map((t) => ({
@@ -236,7 +236,7 @@ export function registerCreditTools(server: FastMCP) {
 				note: args.note ?? null,
 			});
 
-			if (error) throw new Error(`Failed to link: ${error.message}`);
+			if (error) throw safeDbError("Link credit", error);
 			return "Credit linked to charge successfully.";
 		},
 	});

@@ -6,6 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { getUserId } from "../auth.js";
 import { supabase } from "../db.js";
+import { safeDbError } from "../utils.js";
 
 export function registerSubscriptionTools(server: FastMCP) {
 	server.addTool({
@@ -151,7 +152,7 @@ export function registerSubscriptionTools(server: FastMCP) {
 				account_id: args.accountId,
 			});
 
-			if (error) throw new Error(`Failed to dismiss: ${error.message}`);
+			if (error) throw safeDbError("Dismiss subscription", error);
 			return `Subscription "${args.merchantKey}" dismissed.`;
 		},
 	});
@@ -174,7 +175,7 @@ export function registerSubscriptionTools(server: FastMCP) {
 				.eq("merchant_key", args.merchantKey)
 				.eq("account_id", args.accountId);
 
-			if (error) throw new Error(`Failed to restore: ${error.message}`);
+			if (error) throw safeDbError("Restore subscription", error);
 			return `Subscription "${args.merchantKey}" restored.`;
 		},
 	});

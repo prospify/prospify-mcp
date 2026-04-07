@@ -6,6 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { getUserId } from "../auth.js";
 import { supabase } from "../db.js";
+import { safeDbError } from "../utils.js";
 
 export function registerAccountTools(server: FastMCP) {
 	server.addTool({
@@ -26,7 +27,7 @@ export function registerAccountTools(server: FastMCP) {
 				.eq("user_id", userId)
 				.order("name");
 
-			if (error) throw new Error(`Failed to fetch accounts: ${error.message}`);
+			if (error) throw safeDbError("Fetch accounts", error);
 
 			// Get institution logos
 			const institutionIds = [

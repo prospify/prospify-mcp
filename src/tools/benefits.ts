@@ -6,7 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { getUserId } from "../auth.js";
 import { supabase } from "../db.js";
-import { escapeLikePattern, verifyAccountOwnership } from "../utils.js";
+import { escapeLikePattern, safeDbError, verifyAccountOwnership } from "../utils.js";
 
 export function registerBenefitTools(server: FastMCP) {
 	server.addTool({
@@ -256,7 +256,7 @@ export function registerBenefitTools(server: FastMCP) {
 				note: args.note ?? null,
 			});
 
-			if (error) throw new Error(`Failed to mark benefit: ${error.message}`);
+			if (error) throw safeDbError("Mark benefit", error);
 
 			return `Marked $${args.amountUsed} used for "${config.benefit_name}".`;
 		},
@@ -404,7 +404,7 @@ export function registerBenefitTools(server: FastMCP) {
 				.order("date", { ascending: false })
 				.limit(args.limit);
 
-			if (error) throw new Error(`Search failed: ${error.message}`);
+			if (error) throw safeDbError("Search transactions", error);
 
 			return JSON.stringify(
 				(data ?? []).map((t) => ({

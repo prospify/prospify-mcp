@@ -6,6 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { getUserId } from "../auth.js";
 import { supabase } from "../db.js";
+import { safeDbError } from "../utils.js";
 
 export function registerProfileTools(server: FastMCP) {
 	server.addTool({
@@ -59,7 +60,7 @@ export function registerProfileTools(server: FastMCP) {
 				.eq("status", "confirmed")
 				.or(`primary_user_id.eq.${userId},authorized_user_id.eq.${userId}`);
 
-			if (error) throw new Error(`Failed to fetch linked accounts: ${error.message}`);
+			if (error) throw safeDbError("Fetch linked accounts", error);
 
 			return JSON.stringify(
 				(data ?? []).map((link) => ({

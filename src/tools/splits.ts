@@ -6,6 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { getUserId } from "../auth.js";
 import { supabase } from "../db.js";
+import { safeDbError } from "../utils.js";
 
 export function registerSplitTools(server: FastMCP) {
 	server.addTool({
@@ -43,7 +44,7 @@ export function registerSplitTools(server: FastMCP) {
 				.eq("user_id", userId)
 				.order("first_name");
 
-			if (error) throw new Error(`Failed to fetch friends: ${error.message}`);
+			if (error) throw safeDbError("Fetch friends", error);
 
 			return JSON.stringify(
 				(data ?? []).map((f) => ({
@@ -72,7 +73,7 @@ export function registerSplitTools(server: FastMCP) {
 				.eq("user_id", userId)
 				.order("name");
 
-			if (error) throw new Error(`Failed to fetch groups: ${error.message}`);
+			if (error) throw safeDbError("Fetch groups", error);
 
 			// Get members for each group
 			const groupIds = (groups ?? []).map((g) => g.id);
