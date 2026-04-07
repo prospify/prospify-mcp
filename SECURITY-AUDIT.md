@@ -1,18 +1,20 @@
 # Prospify Security Audit Report
 
-**Date**: 2026-04-07  
+**Date**: 2026-04-07 (updated with Round 2 findings)  
 **Scope**: prospify-mcp (MCP server) + prospify-tools (web app) + infrastructure  
-**Method**: Automated code review by 3 parallel security audit agents
+**Method**: Automated code review by 6 parallel security audit agents (2 rounds)
 
 ---
 
 ## Executive Summary
 
+### Round 1
+
 | Severity | MCP Server | Web App | Infrastructure | Total |
 |----------|-----------|---------|---------------|-------|
-| Critical | 1 | 2 | 1 | **4** |
-| High | 5 | 4 | 2 | **11** |
-| Medium | 3 | 5 | 2 | **10** |
+| Critical | 1 (FIXED) | 2 | 1 | **4** |
+| High | 5 (FIXED) | 4 | 2 | **11** |
+| Medium | 3 (FIXED) | 5 | 2 | **10** |
 | Low | 4 | 3 | 1 | **8** |
 
 **Top 5 urgent fixes:**
@@ -145,3 +147,83 @@ Zero rate limiting across the entire application.
 - tRPC `protectedProcedure` middleware properly checks auth
 - Supabase SSR cookie handling is correct
 - No secrets committed to git (.gitignore properly configured)
+
+---
+
+## Round 2 Findings (2026-04-07, second pass)
+
+### MCP Server — Verification Results
+
+All round-1 fixes verified as working. Two minor gaps found and fixed:
+- `escapeLikePattern` now escapes backslashes before `%`/`_` (prevents `\%` bypass)
+- Missing `.max(500)` on `search-transactions-for-linking` search param added
+
+### Web App — New Findings
+
+#### R2-C1: Open Redirect via Splitwise OAuth State (HIGH)
+**File**: `src/app/api/splitwise/callback/route.ts:57,86,117,130,147,186`  
+The `redirect` query parameter is embedded in OAuth state and used directly in `NextResponse.redirect()` without validation.  
+**Fix**: Validate redirectUrl starts with `/` and doesn't contain `://`.
+
+#### R2-C2: Host Header Injection in Splitwise Callback (HIGH)
+**File**: `src/app/api/splitwise/callback/route.ts:31,40,51,65,84`  
+Redirect URLs constructed using `request.headers.get('host')` which is attacker-controlled.  
+**Fix**: Use `process.env.NEXT_PUBLIC_SITE_URL` instead.
+
+#### R2-C3: OAuth State Not Cryptographically Validated (HIGH)
+**File**: `src/app/api/splitwise/auth/route.ts:38-42`  
+Random state token generated but never stored or verified in callback.  
+**Fix**: Store state in signed cookie, verify on callback.
+
+#### R2-H1: IDOR in items.create — userId from Input (HIGH)
+**File**: `src/server/api/routers/plaid/items.ts:63-71`  
+Uses `input.userId` instead of `ctx.user.id`. User A can create items under User B.  
+**Fix**: Use `ctx.user.id`.
+
+#### R2-H2: IDOR in items.delete/getAccounts — No Ownership Check (HIGH)
+**File**: `src/server/api/routers/plaid/items.ts:263-340`  
+Item deletion and account listing have no user ownership verification.  
+**Fix**: Add `user_id` filter.
+
+#### R2-H3: IDOR in upsertCardDetails (HIGH)
+**File**: `src/server/api/routers/cards.ts:81-99`  
+No verification that account_id belongs to authenticated user.  
+**Fix**: Verify ownership before upserting.
+
+#### R2-M1: SSRF via Legacy Webhook Forwarder (MEDIUM)
+**File**: `src/server/api/routers/plaid/services.ts:9-35`  
+Public procedure with `z.any()` input forwards to webhook endpoint.  
+**Fix**: Remove or add authentication.
+
+#### R2-M2: Cross-User PII Leakage via Account Link Detection (MEDIUM)
+**File**: `src/lib/account-linking.ts:209-237`  
+Pending links expose other users' display names, emails, account masks.  
+**Fix**: Limit PII exposure, require opt-in.
+
+#### R2-M3: Splitwise Client No Timeout (MEDIUM)
+**File**: `src/lib/splitwise-client.ts:148-185`  
+`fetch()` has no timeout, enabling resource exhaustion.  
+**Fix**: Add `AbortSignal.timeout(10000)`.
+
+#### R2-M4: Splitwise Response Not Schema-Validated (MEDIUM)
+**File**: `src/lib/splitwise-client.ts:181`  
+API responses cast to TS types with no runtime validation.  
+**Fix**: Validate with Zod schemas.
+
+#### R2-L1: Race Condition in Account Link Role Selection (LOW)
+**File**: `src/server/api/routers/linked-accounts.ts:306-390`  
+Check-then-update not atomic — both users can set role simultaneously.  
+**Fix**: Use atomic `UPDATE ... WHERE requires_role_selection = true RETURNING *`.
+
+### Round 2 Summary
+
+| Severity | Web App (new) | MCP Server (new) |
+|----------|--------------|-----------------|
+| High | 6 | 0 (fixes verified) |
+| Medium | 4 | 0 (2 minor gaps fixed) |
+| Low | 1 | 0 |
+
+**Most urgent Round 2 fixes:**
+1. Splitwise OAuth state validation (R2-C3) — enables CSRF account takeover
+2. items.create/delete IDOR (R2-H1, R2-H2) — cross-user item manipulation
+3. Host header injection (R2-C2) — redirect hijacking
