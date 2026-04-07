@@ -21,7 +21,7 @@ bun test:unit         # Unit tests (no external deps needed)
 bun test:integration  # Integration tests (requires Supabase credentials in .env)
 bun test:e2e          # E2E tests (spawns server processes, tests protocol)
 bun test              # Unit + integration
-bun test:all          # All 130 tests
+bun test:all          # All 138 tests
 bun run validate      # Protocol-level validation (health, OAuth, MCP handshake)
 ```
 
