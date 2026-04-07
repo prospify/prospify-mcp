@@ -137,6 +137,7 @@ export function registerSubscriptionTools(server: FastMCP) {
 		name: "dismiss-subscription",
 		description:
 			"Dismiss a detected subscription as a false positive. It will no longer appear in the subscription list.",
+		annotations: { destructiveHint: false, idempotentHint: true },
 		parameters: z.object({
 			merchantKey: z.string().describe("Merchant name (lowercased) to dismiss"),
 			accountId: z.number().describe("Account ID"),
@@ -158,6 +159,7 @@ export function registerSubscriptionTools(server: FastMCP) {
 	server.addTool({
 		name: "restore-subscription",
 		description: "Restore a previously dismissed subscription.",
+		annotations: { destructiveHint: false, idempotentHint: true },
 		parameters: z.object({
 			merchantKey: z.string().describe("Merchant name to restore"),
 			accountId: z.number().describe("Account ID"),

@@ -252,6 +252,7 @@ export function registerBenefitTools(server: FastMCP) {
 		name: "run-benefit-auto-match",
 		description:
 			"Trigger automatic benefit matching for a credit card. Scans recent transactions and matches them to configured benefits using merchant patterns.",
+		annotations: { destructiveHint: false, idempotentHint: true },
 		parameters: z.object({
 			accountId: z.number().describe("Account ID of the credit card"),
 		}),

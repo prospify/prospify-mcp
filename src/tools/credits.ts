@@ -81,6 +81,7 @@ export function registerCreditTools(server: FastMCP) {
 	server.addTool({
 		name: "confirm-credit-match",
 		description: "Confirm a credit-to-charge match suggestion. Links the credit to the charge.",
+		annotations: { destructiveHint: false },
 		parameters: z.object({
 			suggestionId: z.string().describe("Match suggestion ID to confirm"),
 		}),
@@ -130,6 +131,7 @@ export function registerCreditTools(server: FastMCP) {
 	server.addTool({
 		name: "reject-credit-match",
 		description: "Reject a credit-to-charge match suggestion.",
+		annotations: { destructiveHint: false },
 		parameters: z.object({
 			suggestionId: z.string().describe("Match suggestion ID to reject"),
 		}),
@@ -194,6 +196,7 @@ export function registerCreditTools(server: FastMCP) {
 	server.addTool({
 		name: "link-credit",
 		description: "Manually link a credit/refund transaction to a charge transaction.",
+		annotations: { destructiveHint: false },
 		parameters: z.object({
 			chargeTransactionId: z.number().describe("ID of the charge transaction"),
 			creditTransactionId: z.number().describe("ID of the credit/refund transaction"),

@@ -12,6 +12,7 @@ export function registerTransactionTools(server: FastMCP) {
 		name: "get-transactions",
 		description:
 			"List the user's transactions with optional filters. Returns transaction name, amount, date, category, account, and split info. Amounts are positive for debits (money spent) and negative for credits/refunds.",
+		annotations: { readOnlyHint: true },
 		parameters: z.object({
 			accountId: z.number().optional().describe("Filter by account ID"),
 			startDate: z.string().optional().describe("Start date (YYYY-MM-DD)"),
@@ -178,6 +179,7 @@ export function registerTransactionTools(server: FastMCP) {
 	server.addTool({
 		name: "restore-transaction",
 		description: "Restore a previously deleted transaction.",
+		annotations: { destructiveHint: false, idempotentHint: true },
 		parameters: z.object({
 			transactionId: z.number().describe("Transaction ID to restore"),
 		}),
@@ -208,6 +210,7 @@ export function registerTransactionTools(server: FastMCP) {
 		name: "change-category",
 		description:
 			"Change a transaction's category. Optionally apply the same category to all transactions from the same merchant.",
+		annotations: { destructiveHint: false, idempotentHint: true },
 		parameters: z.object({
 			transactionId: z.number().describe("Transaction ID"),
 			newCategory: z.string().describe("New category (e.g. FOOD_AND_DRINK, TRAVEL, ENTERTAINMENT)"),
