@@ -1,4 +1,4 @@
-name: Test
+name: Test Suite
 
 on:
   push:
@@ -6,23 +6,73 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
-    name: Lint & Type Check
+    name: Lint
     runs-on: ubuntu-latest
+    env:
+      SKIP_ENV_VALIDATION: true
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun install
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
       - run: bun run lint
+
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    env:
+      SKIP_ENV_VALIDATION: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
       - run: bun run type-check
 
-  test:
-    name: Unit & Integration Tests
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [lint, type-check]
+    env:
+      SKIP_ENV_VALIDATION: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
+      - run: bun test tests/unit
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [lint, type-check]
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
@@ -34,13 +84,18 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun install
-      - run: bun test tests/unit tests/integration
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
+      - run: bun test tests/integration
 
-  e2e:
+  e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [lint, type-check]
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
@@ -52,5 +107,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun install
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
       - run: bun test tests/e2e

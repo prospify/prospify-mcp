@@ -1,14 +1,18 @@
 /**
  * Environment variable validation and access.
  * Fails fast at startup if required vars are missing.
+ *
+ * Set SKIP_ENV_VALIDATION=true to skip validation (for CI lint/type-check).
  */
+
+const skipValidation = process.env.SKIP_ENV_VALIDATION === "true";
 
 function required(name: string): string {
 	const value = process.env[name];
-	if (!value) {
+	if (!value && !skipValidation) {
 		throw new Error(`Missing required environment variable: ${name}`);
 	}
-	return value;
+	return value || "";
 }
 
 function optional(name: string, defaultValue: string): string {
