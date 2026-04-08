@@ -20,6 +20,17 @@ describe("resolveUserId", () => {
 	test("throws for unknown email", async () => {
 		expect(resolveUserId("nonexistent@example.com")).rejects.toThrow("No Prospify account found");
 	});
+
+	test("error for unknown email does NOT contain the email address", async () => {
+		const testEmail = "secret-user-enumeration-test@example.com";
+		try {
+			await resolveUserId(testEmail);
+		} catch (e) {
+			const message = (e as Error).message;
+			expect(message).not.toContain(testEmail);
+			expect(message).toContain("No Prospify account found");
+		}
+	});
 });
 
 describe("getUserId", () => {
