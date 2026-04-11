@@ -4,11 +4,11 @@
 
 import type { FastMCP } from "fastmcp";
 import { z } from "zod";
-import { getUserId } from "../auth.js";
-import { supabase } from "../db.js";
+import type { ProspifySession } from "../auth.js";
+import { createUserSupabaseClient } from "../supabase-client.js";
 import { escapeLikePattern, safeDbError } from "../utils.js";
 
-export function registerCreditTools(server: FastMCP) {
+export function registerCreditTools(server: FastMCP<ProspifySession>) {
 	server.addTool({
 		name: "get-credit-matches",
 		description:
@@ -18,14 +18,13 @@ export function registerCreditTools(server: FastMCP) {
 			limit: z.number().max(50).default(20).describe("Max results"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			const { data, error } = await supabase
+			const { data, error } = await client
 				.from("credit_match_suggestions")
 				.select(
 					"id, credit_plaid_transaction_id, charge_plaid_transaction_id, confidence_score, credit_type, status",
 				)
-				.eq("user_id", userId)
 				.eq("status", "pending")
 				.order("confidence_score", { ascending: false })
 				.limit(args.limit);
@@ -33,7 +32,6 @@ export function registerCreditTools(server: FastMCP) {
 			if (error) throw safeDbError("Fetch matches", error);
 			if (!data || data.length === 0) return JSON.stringify({ matches: [] });
 
-			// Get transaction details for the matched pairs
 			const allTxIds = [
 				...new Set([
 					...data.map((d) => d.credit_plaid_transaction_id),
@@ -41,10 +39,9 @@ export function registerCreditTools(server: FastMCP) {
 				]),
 			];
 
-			const { data: txDetails } = await supabase
+			const { data: txDetails } = await client
 				.from("transactions")
 				.select("plaid_transaction_id, name, amount, date, card_name")
-				.eq("user_id", userId)
 				.in("plaid_transaction_id", allTxIds);
 
 			const txMap = new Map((txDetails ?? []).map((t) => [t.plaid_transaction_id, t]));
@@ -87,32 +84,27 @@ export function registerCreditTools(server: FastMCP) {
 			suggestionId: z.string().max(200).describe("Match suggestion ID to confirm"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			// Verify ownership
-			const { data: suggestion } = await supabase
+			const { data: suggestion } = await client
 				.from("credit_match_suggestions")
 				.select("id, credit_plaid_transaction_id, charge_plaid_transaction_id")
 				.eq("id", args.suggestionId)
-				.eq("user_id", userId)
 				.eq("status", "pending")
-				.single();
+				.maybeSingle();
 
 			if (!suggestion) throw new Error("Match suggestion not found or already processed");
 
-			// Get the credit amount (scoped to user for defense-in-depth)
-			const { data: creditTx } = await supabase
+			const { data: creditTx } = await client
 				.from("transactions")
 				.select("amount")
 				.eq("plaid_transaction_id", suggestion.credit_plaid_transaction_id)
-				.eq("user_id", userId)
-				.single();
+				.maybeSingle();
 
 			const creditAmount = Math.abs(Number(creditTx?.amount ?? 0));
 
-			// Create the credit link
-			const { error: linkErr } = await supabase.from("transaction_credits").insert({
-				user_id: userId,
+			const { error: linkErr } = await client.from("transaction_credits").insert({
+				user_id: session!.userId,
 				plaid_transaction_id: suggestion.charge_plaid_transaction_id,
 				credit_plaid_transaction_id: suggestion.credit_plaid_transaction_id,
 				credit_amount: creditAmount,
@@ -120,8 +112,7 @@ export function registerCreditTools(server: FastMCP) {
 
 			if (linkErr) throw safeDbError("Create credit link", linkErr);
 
-			// Update suggestion status
-			await supabase
+			await client
 				.from("credit_match_suggestions")
 				.update({ status: "confirmed" })
 				.eq("id", args.suggestionId);
@@ -138,13 +129,12 @@ export function registerCreditTools(server: FastMCP) {
 			suggestionId: z.string().max(200).describe("Match suggestion ID to reject"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			const { error } = await supabase
+			const { error } = await client
 				.from("credit_match_suggestions")
 				.update({ status: "rejected" })
 				.eq("id", args.suggestionId)
-				.eq("user_id", userId)
 				.eq("status", "pending");
 
 			if (error) throw safeDbError("Reject match", error);
@@ -162,12 +152,11 @@ export function registerCreditTools(server: FastMCP) {
 			search: z.string().max(500).optional().describe("Search by transaction name"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			let query = supabase
+			let query = client
 				.from("transactions")
 				.select("id, plaid_transaction_id, name, amount, date, account_id, card_name")
-				.eq("user_id", userId)
 				.lt("amount", 0)
 				.eq("is_deleted", false)
 				.order("date", { ascending: false })
@@ -206,30 +195,27 @@ export function registerCreditTools(server: FastMCP) {
 			note: z.string().max(1000).optional().describe("Optional note"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			// Get plaid_transaction_ids for both
-			const { data: chargeTx } = await supabase
+			const { data: chargeTx } = await client
 				.from("transactions")
 				.select("plaid_transaction_id")
 				.eq("id", args.chargeTransactionId)
-				.eq("user_id", userId)
-				.single();
+				.maybeSingle();
 
-			const { data: creditTx } = await supabase
+			const { data: creditTx } = await client
 				.from("transactions")
 				.select("plaid_transaction_id, amount")
 				.eq("id", args.creditTransactionId)
-				.eq("user_id", userId)
-				.single();
+				.maybeSingle();
 
 			if (!chargeTx || !creditTx) throw new Error("Transaction not found or access denied");
 
 			if (Number(creditTx.amount) >= 0)
 				throw new Error("Credit transaction must have a negative amount");
 
-			const { error } = await supabase.from("transaction_credits").insert({
-				user_id: userId,
+			const { error } = await client.from("transaction_credits").insert({
+				user_id: session!.userId,
 				plaid_transaction_id: chargeTx.plaid_transaction_id,
 				credit_plaid_transaction_id: creditTx.plaid_transaction_id,
 				credit_amount: args.creditAmount,

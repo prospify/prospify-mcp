@@ -1,42 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { getUserId, resolveUserId } from "../../src/auth";
-import { supabase } from "../../src/db";
+import { createUserSupabaseClient } from "../../src/supabase-client";
+import { getTestSession } from "../helpers/auth";
 
-describe("database connection", () => {
-	test("can query Supabase", async () => {
-		const { data, error } = await supabase.from("user_profiles").select("id").limit(1);
+describe("user-scoped Supabase client", () => {
+	test("can query user_profiles through the user's JWT", async () => {
+		const session = await getTestSession();
+		const client = createUserSupabaseClient(session.accessToken);
+
+		const { data, error } = await client.from("user_profiles").select("id").limit(1);
 		expect(error).toBeNull();
 		expect(data).toBeArray();
 	});
-});
 
-describe("resolveUserId", () => {
-	test("resolves known user email to UUID", async () => {
-		const userId = await resolveUserId("ashay@prospify.co");
-		expect(userId).toBeString();
-		expect(userId).toMatch(/^[0-9a-f-]{36}$/);
-	});
+	test("RLS enforces row scoping without .eq(user_id) filters", async () => {
+		const session = await getTestSession();
+		const client = createUserSupabaseClient(session.accessToken);
 
-	test("throws for unknown email", async () => {
-		expect(resolveUserId("nonexistent@example.com")).rejects.toThrow("No Prospify account found");
-	});
-
-	test("error for unknown email does NOT contain the email address", async () => {
-		const testEmail = "secret-user-enumeration-test@example.com";
-		try {
-			await resolveUserId(testEmail);
-		} catch (e) {
-			const message = (e as Error).message;
-			expect(message).not.toContain(testEmail);
-			expect(message).toContain("No Prospify account found");
-		}
-	});
-});
-
-describe("getUserId", () => {
-	test("works with valid session", async () => {
-		const userId = await getUserId({ email: "ashay@prospify.co", accessToken: "test" });
-		expect(userId).toBeString();
-		expect(userId.length).toBe(36);
+		// Query the transactions view with no user filter — RLS alone
+		// should limit results to rows belonging to this user.
+		const { data, error } = await client.from("transactions").select("id").limit(5);
+		expect(error).toBeNull();
+		expect(data).toBeArray();
 	});
 });

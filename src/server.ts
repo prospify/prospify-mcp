@@ -2,13 +2,20 @@
  * Prospify MCP Server
  *
  * Exposes Prospify's personal finance data to AI assistants via the
- * Model Context Protocol. Authenticated via Google OAuth (same account
- * used for prospify.app).
+ * Model Context Protocol. The server is a pure OAuth 2.1 Protected
+ * Resource — all authentication is delegated to Supabase's built-in
+ * OAuth server. The MCP server itself holds no admin credentials and
+ * no service role key; every request is scoped to the authenticated
+ * user by attaching their JWT to a per-request Supabase client, and
+ * row-level security is enforced by Postgres (`auth.uid()`).
+ *
+ * See ./auth.ts and ./supabase-client.ts for the full architecture.
  */
 
 import { FastMCP } from "fastmcp";
-import { authProvider } from "./auth.js";
+import { type ProspifySession, authenticate } from "./auth.js";
 import { env } from "./env.js";
+import { createUserSupabaseClient } from "./supabase-client.js";
 import { registerAccountTools } from "./tools/accounts.js";
 import { registerBenefitTools } from "./tools/benefits.js";
 import { registerCreditTools } from "./tools/credits.js";
@@ -17,10 +24,21 @@ import { registerSplitTools } from "./tools/splits.js";
 import { registerSubscriptionTools } from "./tools/subscriptions.js";
 import { registerTransactionTools } from "./tools/transactions.js";
 
-const server = new FastMCP({
+const server = new FastMCP<ProspifySession>({
 	name: "Prospify",
 	version: "0.1.0",
-	auth: authProvider,
+	authenticate,
+	oauth: {
+		enabled: true,
+		protectedResource: {
+			resource: env.MCP_BASE_URL,
+			authorizationServers: [`${env.SUPABASE_URL}/auth/v1`],
+			scopesSupported: ["openid", "email", "profile"],
+			bearerMethodsSupported: ["header"],
+			resourceName: "Prospify Personal Finance",
+			resourceDocumentation: "https://github.com/prospify/prospify-mcp",
+		},
+	},
 	health: {
 		enabled: true,
 		message: "Prospify MCP server is running",
@@ -45,16 +63,12 @@ server.addResourceTemplate({
 	description: "List of all connected bank accounts and credit cards",
 	mimeType: "application/json",
 	arguments: [],
-	load: async (_args, auth) => {
-		const { getUserId } = await import("./auth.js");
-		const { supabase } = await import("./db.js");
-		const userId = await getUserId(auth);
-
-		const { data } = await supabase
+	load: async (_args, session) => {
+		const s = session as unknown as ProspifySession;
+		const client = createUserSupabaseClient(s.accessToken);
+		const { data } = await client
 			.from("accounts")
-			.select("id, name, mask, type, subtype, current_balance")
-			.eq("user_id", userId);
-
+			.select("id, name, mask, type, subtype, current_balance");
 		return { text: JSON.stringify(data ?? [], null, 2) };
 	},
 });
@@ -130,4 +144,7 @@ if (transportType === "stdio") {
 	console.log(`Prospify MCP server started on port ${env.MCP_SERVER_PORT}`);
 	console.log(`Health check: http://localhost:${env.MCP_SERVER_PORT}/healthz`);
 	console.log(`MCP endpoint: http://localhost:${env.MCP_SERVER_PORT}/mcp`);
+	console.log(
+		`PRM metadata: http://localhost:${env.MCP_SERVER_PORT}/.well-known/oauth-protected-resource`,
+	);
 }

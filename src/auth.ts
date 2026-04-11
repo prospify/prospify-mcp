@@ -1,95 +1,121 @@
 /**
- * Authentication: Google OAuth → Supabase user ID mapping.
+ * JWT verification: Supabase OAuth 2.1 → ProspifySession.
  *
- * Users sign in with their Google account (same one used for Prospify).
- * After OAuth, we look up the corresponding Supabase user by email.
+ * The MCP server is a pure OAuth Protected Resource. Every request arrives
+ * with `Authorization: Bearer <jwt>` where the JWT was minted by Supabase's
+ * built-in OAuth server (https://<project>.supabase.co/auth/v1/oauth/token)
+ * after the user completed PKCE + consent at prospify.app/oauth/consent.
+ *
+ * This module:
+ *   1. Verifies the JWT signature against Supabase's JWKS (ES256, cached)
+ *   2. Validates issuer, audience, and expiry
+ *   3. Requires a `client_id` claim (proves OAuth-issued, not password-grant)
+ *   4. Optionally enforces an allowlist of registered client IDs
+ *   5. Returns a `ProspifySession` that tool handlers use to build a
+ *      user-scoped Supabase client (see ./supabase-client.ts)
+ *
+ * On any failure we throw a `Response` with status 401 and an
+ * RFC 9728-compliant `WWW-Authenticate` header so MCP clients can
+ * auto-discover the protected-resource metadata and start the OAuth flow.
  */
 
-import { GoogleProvider, type GoogleSession } from "fastmcp";
-import { adminClient } from "./db.js";
+import { type JWTPayload, createRemoteJWKSet, jwtVerify } from "jose";
 import { env } from "./env.js";
 
-export type { GoogleSession };
+const JWKS = createRemoteJWKSet(
+	new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
+);
 
-export const authProvider = new GoogleProvider({
-	baseUrl: env.MCP_BASE_URL,
-	clientId: env.GOOGLE_CLIENT_ID,
-	clientSecret: env.GOOGLE_CLIENT_SECRET,
-	scopes: ["openid", "email", "profile"],
-});
+const ISSUER = `${env.SUPABASE_URL}/auth/v1`;
+const AUDIENCE = "authenticated";
+const PRM_URL = `${env.MCP_BASE_URL}/.well-known/oauth-protected-resource`;
 
-// Cache email → userId mappings with LRU eviction
-const MAX_CACHE_SIZE = 10_000;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const userIdCache = new Map<string, { userId: string; expiresAt: number }>();
+export interface ProspifySession extends Record<string, unknown> {
+	userId: string;
+	email?: string;
+	accessToken: string;
+	clientId: string;
+	scopes: string[];
+}
 
-/**
- * Resolve Supabase user ID from Google email.
- * Paginates through all users if >1000 exist.
- * Cached for 5 minutes with LRU eviction at 10k entries.
- */
-export async function resolveUserId(email: string): Promise<string> {
-	const cached = userIdCache.get(email);
-	if (cached && cached.expiresAt > Date.now()) {
-		return cached.userId;
-	}
+function unauthorized(error: string, description: string): never {
+	throw new Response(
+		JSON.stringify({ error, error_description: description }),
+		{
+			status: 401,
+			headers: {
+				"Content-Type": "application/json",
+				"WWW-Authenticate": `Bearer resource_metadata="${PRM_URL}", error="${error}", error_description="${description}"`,
+			},
+		},
+	);
+}
 
-	// Look up user by email directly via the auth.users table
-	// This avoids loading all users into memory (previous pagination approach)
-	const { data: lookupResult, error: lookupError } = await adminClient
-		.from("auth.users" as "users")
-		.select("id")
-		.eq("email", email)
-		.single();
-
-	// Fallback: if direct query fails (e.g., auth schema not exposed),
-	// use listUsers with a single page scan
-	if (lookupError || !lookupResult) {
-		const { data, error } = await adminClient.auth.admin.listUsers({
-			page: 1,
-			perPage: 1000,
-		});
-
-		if (error) {
-			throw new Error("Failed to look up user. Please try again.");
-		}
-
-		const user = data.users.find((u) => u.email === email);
-		if (!user) {
-			throw new Error(
-				"No Prospify account found for this email. Please sign up at prospify.app first.",
-			);
-		}
-
-		// Cache the result
-		if (userIdCache.size >= MAX_CACHE_SIZE) {
-			const firstKey = userIdCache.keys().next().value;
-			if (firstKey) userIdCache.delete(firstKey);
-		}
-		userIdCache.set(email, { userId: user.id, expiresAt: Date.now() + CACHE_TTL_MS });
-		return user.id;
-	}
-
-	// Direct lookup succeeded
-	if (userIdCache.size >= MAX_CACHE_SIZE) {
-		const firstKey = userIdCache.keys().next().value;
-		if (firstKey) userIdCache.delete(firstKey);
-	}
-	userIdCache.set(email, {
-		userId: lookupResult.id,
-		expiresAt: Date.now() + CACHE_TTL_MS,
-	});
-	return lookupResult.id;
+function extractBearerToken(
+	headers: Record<string, string | string[] | undefined> | undefined,
+): string {
+	const raw = headers?.authorization;
+	const value = typeof raw === "string" ? raw : raw?.[0] ?? "";
+	const token = value.replace(/^Bearer\s+/i, "").trim();
+	if (!token) unauthorized("invalid_token", "Missing bearer token");
+	return token;
 }
 
 /**
- * Helper to get userId from a session.
- * Every tool handler should call this.
+ * FastMCP `authenticate` callback. Called once per incoming HTTP request;
+ * the returned session is made available to every tool handler via
+ * `context.session`.
  */
-export async function getUserId(session: Record<string, unknown> | undefined): Promise<string> {
-	const email = session?.email as string | undefined;
-	if (!email) {
-		throw new Error("Authentication required. Please sign in with your Google account.");
+export async function authenticate(
+	request?: { headers?: Record<string, string | string[] | undefined> },
+): Promise<ProspifySession> {
+	const token = extractBearerToken(request?.headers);
+
+	let payload: JWTPayload;
+	try {
+		const verified = await jwtVerify(token, JWKS, {
+			issuer: ISSUER,
+			audience: AUDIENCE,
+		});
+		payload = verified.payload;
+	} catch (e) {
+		if (e instanceof Response) throw e;
+		unauthorized("invalid_token", (e as Error).message);
 	}
-	return resolveUserId(email);
+
+	if (!payload.sub) {
+		unauthorized("invalid_token", "token missing sub");
+	}
+
+	// Require client_id — proves the token came through the OAuth flow
+	// (not a stray password-grant JWT that happened to hit us). This is
+	// the MCP spec's "strict resource binding" in spirit.
+	const clientId = (payload as Record<string, unknown>).client_id as string | undefined;
+	if (!clientId) {
+		unauthorized(
+			"invalid_token",
+			"token is not OAuth-issued (missing client_id claim)",
+		);
+	}
+
+	// Optional allowlist — empty means accept any OAuth-issued client,
+	// which is what we want for Dynamic Client Registration support.
+	if (
+		env.MCP_ALLOWED_CLIENT_IDS.length > 0 &&
+		!env.MCP_ALLOWED_CLIENT_IDS.includes(clientId)
+	) {
+		unauthorized("invalid_token", "client_id not in allowlist");
+	}
+
+	const scopeClaim = (payload as Record<string, unknown>).scope;
+	const scopes =
+		typeof scopeClaim === "string" ? scopeClaim.split(" ").filter(Boolean) : [];
+
+	return {
+		userId: payload.sub as string,
+		email: payload.email as string | undefined,
+		accessToken: token,
+		clientId,
+		scopes,
+	};
 }

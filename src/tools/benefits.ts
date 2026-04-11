@@ -1,14 +1,30 @@
 /**
  * Benefit tools — track credit card rewards/benefits usage.
+ *
+ * Account ownership is enforced by RLS on the `accounts` view. Handlers
+ * that take an `accountId` verify it by selecting from `accounts` — if
+ * the user doesn't own the account, the select returns no row and we
+ * throw "not found". There's no separate `verifyAccountOwnership()`
+ * helper anymore because RLS makes that redundant.
  */
 
 import type { FastMCP } from "fastmcp";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { getUserId } from "../auth.js";
-import { supabase } from "../db.js";
-import { escapeLikePattern, safeDbError, verifyAccountOwnership } from "../utils.js";
+import type { ProspifySession } from "../auth.js";
+import { createUserSupabaseClient } from "../supabase-client.js";
+import { escapeLikePattern, safeDbError } from "../utils.js";
 
-export function registerBenefitTools(server: FastMCP) {
+async function assertOwnsAccount(client: SupabaseClient, accountId: number): Promise<void> {
+	const { data } = await client
+		.from("accounts")
+		.select("id")
+		.eq("id", accountId)
+		.maybeSingle();
+	if (!data) throw new Error("Account not found or access denied");
+}
+
+export function registerBenefitTools(server: FastMCP<ProspifySession>) {
 	server.addTool({
 		name: "get-cards-with-benefits",
 		description:
@@ -16,58 +32,66 @@ export function registerBenefitTools(server: FastMCP) {
 		annotations: { readOnlyHint: true },
 		parameters: z.object({}),
 		execute: async (_args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			const { data, error } = await supabase.rpc("get_user_cards_with_benefits", {
-				p_user_id: userId,
-			});
+			const { data: rpcData, error: rpcErr } = await client.rpc(
+				"get_user_cards_with_benefits",
+				{ p_user_id: session!.userId },
+			);
 
-			// Fallback: manual query if RPC doesn't exist
-			if (error) {
-				const { data: cards, error: queryErr } = await supabase
-					.from("credit_card_details")
-					.select(
-						"account_id, card_id, open_date, credit_card_catalog(id, issuer, name), accounts_table!inner(id, mask, items_table!inner(user_id))",
-					)
-					.eq("accounts_table.items_table.user_id", userId);
-
-				if (queryErr) throw safeDbError("Fetch cards", queryErr);
-
-				// Filter to cards that have benefit configs
-				const cardIds = [...new Set((cards ?? []).map((c) => c.card_id))];
-				const { data: configs } = await supabase
-					.from("card_benefit_configs")
-					.select("card_id")
-					.in("card_id", cardIds)
-					.lte("effective_from", new Date().toISOString())
-					.or(`effective_until.is.null,effective_until.gt.${new Date().toISOString()}`);
-
-				const configCardIds = new Set((configs ?? []).map((c) => c.card_id));
-
-				return JSON.stringify(
-					(cards ?? [])
-						.filter((c) => configCardIds.has(c.card_id))
-						.map((c) => {
-							const catalog = c.credit_card_catalog as unknown as {
-								issuer: string;
-								name: string;
-							};
-							const account = c.accounts_table as unknown as { mask: string };
-							return {
-								accountId: c.account_id,
-								cardId: c.card_id,
-								issuer: catalog?.issuer,
-								name: catalog?.name,
-								mask: account?.mask,
-								openDate: c.open_date,
-							};
-						}),
-					null,
-					2,
-				);
+			if (!rpcErr && rpcData) {
+				return JSON.stringify(rpcData, null, 2);
 			}
 
-			return JSON.stringify(data, null, 2);
+			// Fallback path: query through the accounts view (RLS-scoped) and
+			// intersect with cards that have active benefit configs.
+			const { data: accounts, error: accErr } = await client
+				.from("accounts")
+				.select("id, mask");
+
+			if (accErr) throw safeDbError("Fetch accounts", accErr);
+			const accountIds = (accounts ?? []).map((a) => a.id);
+			if (accountIds.length === 0) return JSON.stringify([]);
+
+			const { data: cards, error: cardErr } = await client
+				.from("credit_card_details")
+				.select("account_id, card_id, open_date, credit_card_catalog(id, issuer, name)")
+				.in("account_id", accountIds);
+
+			if (cardErr) throw safeDbError("Fetch cards", cardErr);
+
+			const cardIds = [...new Set((cards ?? []).map((c) => c.card_id))];
+			const nowIso = new Date().toISOString();
+			const { data: configs } = await client
+				.from("card_benefit_configs")
+				.select("card_id")
+				.in("card_id", cardIds)
+				.lte("effective_from", nowIso)
+				.or(`effective_until.is.null,effective_until.gt.${nowIso}`);
+
+			const configCardIds = new Set((configs ?? []).map((c) => c.card_id));
+			const maskByAccount = new Map((accounts ?? []).map((a) => [a.id, a.mask]));
+
+			return JSON.stringify(
+				(cards ?? [])
+					.filter((c) => configCardIds.has(c.card_id))
+					.map((c) => {
+						const catalog = c.credit_card_catalog as unknown as {
+							issuer: string;
+							name: string;
+						};
+						return {
+							accountId: c.account_id,
+							cardId: c.card_id,
+							issuer: catalog?.issuer,
+							name: catalog?.name,
+							mask: maskByAccount.get(c.account_id) ?? null,
+							openDate: c.open_date,
+						};
+					}),
+				null,
+				2,
+			);
 		},
 	});
 
@@ -80,21 +104,19 @@ export function registerBenefitTools(server: FastMCP) {
 			accountId: z.number().describe("Account ID of the credit card"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
-			await verifyAccountOwnership(args.accountId, userId);
+			const client = createUserSupabaseClient(session!.accessToken);
+			await assertOwnsAccount(client, args.accountId);
 
-			// Get card details
-			const { data: cardDetails } = await supabase
+			const { data: cardDetails } = await client
 				.from("credit_card_details")
 				.select("card_id, open_date, credit_card_catalog(issuer, name)")
 				.eq("account_id", args.accountId)
-				.single();
+				.maybeSingle();
 
 			if (!cardDetails) return JSON.stringify({ card: null, totalValueCaptured: 0 });
 
-			// Get configs
 			const now = new Date();
-			const { data: configs } = await supabase
+			const { data: configs } = await client
 				.from("card_benefit_configs")
 				.select("id, amount")
 				.eq("card_id", cardDetails.card_id)
@@ -104,16 +126,17 @@ export function registerBenefitTools(server: FastMCP) {
 			const configIds = (configs ?? []).map((c) => c.id);
 			const viewYear = now.getFullYear();
 
-			// Get YTD usages
-			const { data: usages } = await supabase
+			const { data: usages } = await client
 				.from("benefit_usages")
 				.select("amount_used")
-				.eq("user_id", userId)
 				.in("benefit_config_id", configIds)
 				.gte("period_start", `${viewYear}-01-01`)
 				.lte("period_end", `${viewYear + 1}-01-01`);
 
-			const totalValueCaptured = (usages ?? []).reduce((sum, u) => sum + Number(u.amount_used), 0);
+			const totalValueCaptured = (usages ?? []).reduce(
+				(sum, u) => sum + Number(u.amount_used),
+				0,
+			);
 
 			const catalog = cardDetails.credit_card_catalog as unknown as {
 				issuer: string;
@@ -144,22 +167,20 @@ export function registerBenefitTools(server: FastMCP) {
 				.describe("Benefit frequency to view"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
-			await verifyAccountOwnership(args.accountId, userId);
+			const client = createUserSupabaseClient(session!.accessToken);
+			await assertOwnsAccount(client, args.accountId);
 
-			// Get card details
-			const { data: cardDetails } = await supabase
+			const { data: cardDetails } = await client
 				.from("credit_card_details")
 				.select("card_id, open_date")
 				.eq("account_id", args.accountId)
-				.single();
+				.maybeSingle();
 
 			if (!cardDetails) return JSON.stringify([]);
 
 			const now = new Date();
 
-			// Get configs for this frequency
-			const { data: configs } = await supabase
+			const { data: configs } = await client
 				.from("card_benefit_configs")
 				.select("*")
 				.eq("card_id", cardDetails.card_id)
@@ -170,12 +191,10 @@ export function registerBenefitTools(server: FastMCP) {
 
 			if (!configs || configs.length === 0) return JSON.stringify([]);
 
-			// Get usages for these configs
 			const configIds = configs.map((c) => c.id);
-			const { data: usages } = await supabase
+			const { data: usages } = await client
 				.from("benefit_usages")
 				.select("benefit_config_id, amount_used, plaid_transaction_id, is_manual, note, created_at")
-				.eq("user_id", userId)
 				.in("benefit_config_id", configIds);
 
 			const usagesByConfig = new Map<string, typeof usages>();
@@ -219,40 +238,37 @@ export function registerBenefitTools(server: FastMCP) {
 			note: z.string().max(1000).optional().describe("Optional note"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			// Get the config and verify ownership through card -> account -> user chain
-			const { data: config } = await supabase
+			const { data: config } = await client
 				.from("card_benefit_configs")
 				.select("id, benefit_name, frequency, card_id, amount")
 				.eq("id", args.benefitConfigId)
-				.single();
+				.maybeSingle();
 
 			if (!config) throw new Error("Benefit config not found");
 
-			// Verify the config's card belongs to a user-owned account
-			const { data: cardOwnership } = await supabase
+			// Confirm the card referenced by this config belongs to an account
+			// this user owns. credit_card_details is joined to accounts, which
+			// is RLS-scoped, so a non-owner sees zero rows.
+			const { data: cardOwnership } = await client
 				.from("credit_card_details")
 				.select("account_id")
 				.eq("card_id", config.card_id)
-				.single();
-
-			if (cardOwnership) {
-				await verifyAccountOwnership(cardOwnership.account_id, userId);
-			}
+				.maybeSingle();
+			if (!cardOwnership) throw new Error("Account not found or access denied");
+			await assertOwnsAccount(client, cardOwnership.account_id);
 
 			const now = new Date();
-			// Simple period calculation for the current period
 			const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
 			const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-			// Cap check: prevent over-reporting benefit usage
+			// Cap check: prevent over-reporting benefit usage to 2x the limit.
 			const configAmount = Number(config.amount);
 			if (configAmount > 0) {
-				const { data: existingUsages } = await supabase
+				const { data: existingUsages } = await client
 					.from("benefit_usages")
 					.select("amount_used")
-					.eq("user_id", userId)
 					.eq("benefit_config_id", args.benefitConfigId)
 					.gte("period_start", periodStart.toISOString())
 					.lte("period_end", periodEnd.toISOString());
@@ -269,8 +285,8 @@ export function registerBenefitTools(server: FastMCP) {
 				}
 			}
 
-			const { error } = await supabase.from("benefit_usages").insert({
-				user_id: userId,
+			const { error } = await client.from("benefit_usages").insert({
+				user_id: session!.userId,
 				benefit_config_id: args.benefitConfigId,
 				amount_used: args.amountUsed,
 				period_start: periodStart.toISOString(),
@@ -294,21 +310,19 @@ export function registerBenefitTools(server: FastMCP) {
 			accountId: z.number().describe("Account ID of the credit card"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
-			await verifyAccountOwnership(args.accountId, userId);
+			const client = createUserSupabaseClient(session!.accessToken);
+			await assertOwnsAccount(client, args.accountId);
 
-			// Get card details
-			const { data: cardDetails } = await supabase
+			const { data: cardDetails } = await client
 				.from("credit_card_details")
 				.select("card_id")
 				.eq("account_id", args.accountId)
-				.single();
+				.maybeSingle();
 
 			if (!cardDetails) throw new Error("No card found for this account");
 
-			// Get configs with merchant patterns
 			const now = new Date();
-			const { data: configs } = await supabase
+			const { data: configs } = await client
 				.from("card_benefit_configs")
 				.select("id, benefit_name, merchant_patterns, amount, frequency")
 				.eq("card_id", cardDetails.card_id)
@@ -320,26 +334,22 @@ export function registerBenefitTools(server: FastMCP) {
 				return "No benefit configs with merchant patterns found for this card.";
 			}
 
-			// Get recent credit transactions for this account
 			const sixMonthsAgo = new Date();
 			sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-			const { data: transactions } = await supabase
+			const { data: transactions } = await client
 				.from("transactions")
 				.select("plaid_transaction_id, name, amount, date")
-				.eq("user_id", userId)
 				.eq("account_id", args.accountId)
-				.lt("amount", 0) // Credits only
+				.lt("amount", 0)
 				.gte("date", sixMonthsAgo.toISOString().slice(0, 10))
 				.eq("is_deleted", false)
 				.limit(5000);
 
-			// Get existing usages to avoid duplicates
 			const configIds = configs.map((c) => c.id);
-			const { data: existingUsages } = await supabase
+			const { data: existingUsages } = await client
 				.from("benefit_usages")
 				.select("plaid_transaction_id")
-				.eq("user_id", userId)
 				.in("benefit_config_id", configIds)
 				.not("plaid_transaction_id", "is", null);
 
@@ -353,31 +363,25 @@ export function registerBenefitTools(server: FastMCP) {
 				const patterns = config.merchant_patterns as string[];
 				if (!patterns || patterns.length === 0) continue;
 
-				// Safe regex: wrap in try/catch and use timeout-safe matching
-				// Validate patterns are simple (no quantifier nesting that causes ReDoS)
 				let regex: RegExp;
 				try {
 					regex = new RegExp(patterns.join("|"), "i");
 				} catch {
-					continue; // Skip invalid patterns
+					continue;
 				}
 
 				for (const tx of transactions ?? []) {
 					if (usedTxIds.has(tx.plaid_transaction_id)) continue;
 
-					// Use case-insensitive includes as primary match for simple patterns
 					const txNameLower = (tx.name as string).toLowerCase();
-					const matchesSimple = patterns.some((p) =>
-						txNameLower.includes(p.toLowerCase()),
-					);
-					// Fall back to regex only if simple match fails (for patterns with wildcards)
+					const matchesSimple = patterns.some((p) => txNameLower.includes(p.toLowerCase()));
 					if (!matchesSimple && !regex.test(tx.name as string)) continue;
 
 					const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
 					const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-					const { error } = await supabase.from("benefit_usages").insert({
-						user_id: userId,
+					const { error } = await client.from("benefit_usages").insert({
+						user_id: session!.userId,
 						benefit_config_id: config.id,
 						plaid_transaction_id: tx.plaid_transaction_id,
 						amount_used: Math.abs(Number(tx.amount)),
@@ -389,13 +393,13 @@ export function registerBenefitTools(server: FastMCP) {
 					if (!error) {
 						matchCount++;
 						usedTxIds.add(tx.plaid_transaction_id);
-						errorCount = 0; // Reset on success
+						errorCount = 0;
 					} else {
 						errorCount++;
-						if (errorCount >= MAX_ERRORS) break; // Circuit breaker
+						if (errorCount >= MAX_ERRORS) break;
 					}
 				}
-				if (errorCount >= MAX_ERRORS) break; // Break outer loop too
+				if (errorCount >= MAX_ERRORS) break;
 			}
 
 			return `Auto-match complete: ${matchCount} new benefit match${matchCount !== 1 ? "es" : ""} found.`;
@@ -413,13 +417,12 @@ export function registerBenefitTools(server: FastMCP) {
 			limit: z.number().max(20).default(10).describe("Max results"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
-			await verifyAccountOwnership(args.accountId, userId);
+			const client = createUserSupabaseClient(session!.accessToken);
+			await assertOwnsAccount(client, args.accountId);
 
-			const { data, error } = await supabase
+			const { data, error } = await client
 				.from("transactions")
 				.select("id, plaid_transaction_id, name, amount, date")
-				.eq("user_id", userId)
 				.eq("account_id", args.accountId)
 				.lt("amount", 0)
 				.eq("is_deleted", false)
