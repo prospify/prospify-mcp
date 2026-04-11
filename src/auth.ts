@@ -22,11 +22,20 @@
 import { type JWTPayload, createRemoteJWKSet, jwtVerify } from "jose";
 import { env } from "./env.js";
 
-const JWKS = createRemoteJWKSet(
-	new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
-);
+// Lazy so the module is importable under SKIP_ENV_VALIDATION=true
+// (CI unit tests, lint) where SUPABASE_URL is empty and constructing
+// `new URL("/auth/v1/.well-known/jwks.json")` would throw.
+type Jwks = ReturnType<typeof createRemoteJWKSet>;
+let jwksSingleton: Jwks | null = null;
+function getJwks(): Jwks {
+	if (!jwksSingleton) {
+		jwksSingleton = createRemoteJWKSet(
+			new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
+		);
+	}
+	return jwksSingleton;
+}
 
-const ISSUER = `${env.SUPABASE_URL}/auth/v1`;
 const AUDIENCE = "authenticated";
 const PRM_URL = `${env.MCP_BASE_URL}/.well-known/oauth-protected-resource`;
 
@@ -73,8 +82,8 @@ export async function authenticate(
 
 	let payload: JWTPayload;
 	try {
-		const verified = await jwtVerify(token, JWKS, {
-			issuer: ISSUER,
+		const verified = await jwtVerify(token, getJwks(), {
+			issuer: `${env.SUPABASE_URL}/auth/v1`,
 			audience: AUDIENCE,
 		});
 		payload = verified.payload;
