@@ -139,6 +139,10 @@ if (transportType === "stdio") {
 		transportType: "httpStream",
 		httpStream: {
 			port: env.MCP_SERVER_PORT,
+			// Bind explicitly to IPv4 localhost. FastMCP's default binds to
+			// the IPv6 loopback only (::1), which breaks clients that
+			// hardcode 127.0.0.1 (mcp-remote does).
+			host: "127.0.0.1",
 		},
 	});
 	console.log(`Prospify MCP server started on port ${env.MCP_SERVER_PORT}`);
