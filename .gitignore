@@ -8,3 +8,7 @@ dist/
 bun.lock
 coverage/
 .DS_Store
+.vercel
+.next/
+next-env.d.ts
+pnpm-lock.yaml
