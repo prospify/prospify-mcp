@@ -7,6 +7,7 @@ describe("env", () => {
 		// In local dev, they should be populated from .env
 		expect(env.MCP_SERVER_PORT).toBeGreaterThan(0);
 		expect(typeof env.SUPABASE_URL).toBe("string");
-		expect(typeof env.SUPABASE_SERVICE_ROLE_KEY).toBe("string");
+		expect(typeof env.SUPABASE_PUBLISHABLE_KEY).toBe("string");
+		expect(env.MCP_ALLOWED_CLIENT_IDS).toBeArray();
 	});
 });

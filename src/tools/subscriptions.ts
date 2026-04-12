@@ -4,11 +4,11 @@
 
 import type { FastMCP } from "fastmcp";
 import { z } from "zod";
-import { getUserId } from "../auth.js";
-import { supabase } from "../db.js";
+import type { ProspifySession } from "../auth.js";
+import { createUserSupabaseClient } from "../supabase-client.js";
 import { safeDbError } from "../utils.js";
 
-export function registerSubscriptionTools(server: FastMCP) {
+export function registerSubscriptionTools(server: FastMCP<ProspifySession>) {
 	server.addTool({
 		name: "get-subscriptions",
 		description:
@@ -16,21 +16,18 @@ export function registerSubscriptionTools(server: FastMCP) {
 		annotations: { readOnlyHint: true },
 		parameters: z.object({}),
 		execute: async (_args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			// Run the subscription detection CTE query via Supabase RPC
-			// Since this is a complex CTE, we use raw SQL via the postgrest rpc endpoint
-			const { data, error } = await supabase.rpc("detect_subscriptions", {
-				p_user_id: userId,
+			// Try the server-side CTE first; fall back to a JS approximation
+			// if the RPC isn't available on this project.
+			const { data, error } = await client.rpc("detect_subscriptions", {
+				p_user_id: session!.userId,
 			});
 
-			// If RPC doesn't exist, fall back to a simpler query approach
 			if (error) {
-				// Get transaction patterns — group by merchant, find recurring ones
-				const { data: transactions, error: txErr } = await supabase
+				const { data: transactions, error: txErr } = await client
 					.from("transactions")
 					.select("name, amount, date, account_id, category, card_name")
-					.eq("user_id", userId)
 					.eq("is_deleted", false)
 					.gt("amount", 0)
 					.order("date", { ascending: false })
@@ -41,7 +38,6 @@ export function registerSubscriptionTools(server: FastMCP) {
 					return JSON.stringify({ subscriptions: [] });
 				}
 
-				// Group by merchant name (lowered) + account
 				interface MerchantGroup {
 					name: string;
 					amounts: number[];
@@ -68,7 +64,6 @@ export function registerSubscriptionTools(server: FastMCP) {
 					groups.set(key, group);
 				}
 
-				// Find recurring patterns (3+ occurrences, consistent amounts)
 				const subscriptions = [];
 				for (const [, group] of groups) {
 					if (group.amounts.length < 3) continue;
@@ -79,10 +74,11 @@ export function registerSubscriptionTools(server: FastMCP) {
 					);
 					const cv = stddev / avg;
 
-					if (cv > 0.2) continue; // Too much variance
+					if (cv > 0.2) continue;
 
-					// Calculate median interval
-					const sortedDates = group.dates.map((d) => new Date(d).getTime()).sort((a, b) => a - b);
+					const sortedDates = group.dates
+						.map((d) => new Date(d).getTime())
+						.sort((a, b) => a - b);
 					const intervals = [];
 					for (let i = 1; i < sortedDates.length; i++) {
 						intervals.push((sortedDates[i] - sortedDates[i - 1]) / (1000 * 60 * 60 * 24));
@@ -92,7 +88,6 @@ export function registerSubscriptionTools(server: FastMCP) {
 					intervals.sort((a, b) => a - b);
 					const medianInterval = intervals[Math.floor(intervals.length / 2)];
 
-					// Determine cadence
 					let cadence: string | null = null;
 					if (medianInterval >= 27 && medianInterval <= 35) cadence = "monthly";
 					else if (medianInterval >= 85 && medianInterval <= 100) cadence = "quarterly";
@@ -144,10 +139,10 @@ export function registerSubscriptionTools(server: FastMCP) {
 			accountId: z.number().describe("Account ID"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			const { error } = await supabase.from("subscription_dismissals").insert({
-				user_id: userId,
+			const { error } = await client.from("subscription_dismissals").insert({
+				user_id: session!.userId,
 				merchant_key: args.merchantKey,
 				account_id: args.accountId,
 			});
@@ -166,12 +161,11 @@ export function registerSubscriptionTools(server: FastMCP) {
 			accountId: z.number().describe("Account ID"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			const { error } = await supabase
+			const { error } = await client
 				.from("subscription_dismissals")
 				.delete()
-				.eq("user_id", userId)
 				.eq("merchant_key", args.merchantKey)
 				.eq("account_id", args.accountId);
 

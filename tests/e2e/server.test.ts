@@ -77,10 +77,13 @@ describe("MCP server E2E", () => {
 		expect([200, 401, 403]).toContain(res.status);
 	});
 
-	test("OAuth discovery endpoint exists", async () => {
+	test("Protected Resource Metadata points at Supabase", async () => {
 		if (!serverProcess) return; // Skip in CI
-		const res = await fetch(`${MCP_URL}/.well-known/oauth-authorization-server`);
-		// Should return metadata or at least not 404
-		expect(res.status).not.toBe(404);
+		// Authorization Server metadata is served by Supabase, not here;
+		// we only advertise ourselves as a Protected Resource (RFC 9728).
+		const res = await fetch(`${MCP_URL}/.well-known/oauth-protected-resource`);
+		expect(res.status).toBe(200);
+		const meta = (await res.json()) as Record<string, unknown>;
+		expect(meta.authorization_servers).toBeArray();
 	});
 });

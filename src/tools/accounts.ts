@@ -4,11 +4,11 @@
 
 import type { FastMCP } from "fastmcp";
 import { z } from "zod";
-import { getUserId } from "../auth.js";
-import { supabase } from "../db.js";
+import type { ProspifySession } from "../auth.js";
+import { createUserSupabaseClient } from "../supabase-client.js";
 import { safeDbError } from "../utils.js";
 
-export function registerAccountTools(server: FastMCP) {
+export function registerAccountTools(server: FastMCP<ProspifySession>) {
 	server.addTool({
 		name: "get-accounts",
 		description:
@@ -16,27 +16,24 @@ export function registerAccountTools(server: FastMCP) {
 		annotations: { readOnlyHint: true },
 		parameters: z.object({}),
 		execute: async (_args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			// Get accounts via the accounts view which joins items and institutions
-			const { data: accounts, error } = await supabase
+			const { data: accounts, error } = await client
 				.from("accounts")
 				.select(
 					"id, name, mask, type, subtype, current_balance, available_balance, iso_currency_code, plaid_institution_id, item_id, is_splitwise",
 				)
-				.eq("user_id", userId)
 				.order("name");
 
 			if (error) throw safeDbError("Fetch accounts", error);
 
-			// Get institution logos
 			const institutionIds = [
 				...new Set((accounts ?? []).map((a) => a.plaid_institution_id).filter(Boolean)),
 			];
 
 			let logoMap: Record<string, string> = {};
 			if (institutionIds.length > 0) {
-				const { data: logos } = await supabase
+				const { data: logos } = await client
 					.from("institution_logos")
 					.select("plaid_institution_id, logo_base64")
 					.in("plaid_institution_id", institutionIds);
@@ -46,9 +43,8 @@ export function registerAccountTools(server: FastMCP) {
 				);
 			}
 
-			// Get card names
 			const accountIds = (accounts ?? []).map((a) => a.id);
-			const { data: cardDetails } = await supabase
+			const { data: cardDetails } = await client
 				.from("credit_card_details")
 				.select("account_id, card_id, credit_card_catalog(issuer, name)")
 				.in("account_id", accountIds);
@@ -78,6 +74,9 @@ export function registerAccountTools(server: FastMCP) {
 						currency: a.iso_currency_code,
 						isSplitwise: a.is_splitwise,
 						card: cardMap[a.id] ?? null,
+						institutionLogo: a.plaid_institution_id
+							? logoMap[a.plaid_institution_id] ?? null
+							: null,
 					})),
 				},
 				null,

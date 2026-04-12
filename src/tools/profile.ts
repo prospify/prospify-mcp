@@ -4,11 +4,11 @@
 
 import type { FastMCP } from "fastmcp";
 import { z } from "zod";
-import { getUserId } from "../auth.js";
-import { supabase } from "../db.js";
+import type { ProspifySession } from "../auth.js";
+import { createUserSupabaseClient } from "../supabase-client.js";
 import { safeDbError } from "../utils.js";
 
-export function registerProfileTools(server: FastMCP) {
+export function registerProfileTools(server: FastMCP<ProspifySession>) {
 	server.addTool({
 		name: "get-user-profile",
 		description:
@@ -16,13 +16,13 @@ export function registerProfileTools(server: FastMCP) {
 		annotations: { readOnlyHint: true },
 		parameters: z.object({}),
 		execute: async (_args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			const { data, error } = await supabase
+			const { data, error } = await client
 				.from("user_profiles")
 				.select("id, age, income, credit_score, created_at")
-				.eq("id", userId)
-				.single();
+				.eq("id", session!.userId)
+				.maybeSingle();
 
 			if (error || !data) {
 				return JSON.stringify({ profile: null, message: "No profile found." });
@@ -50,15 +50,16 @@ export function registerProfileTools(server: FastMCP) {
 		annotations: { readOnlyHint: true },
 		parameters: z.object({}),
 		execute: async (_args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			const { data, error } = await supabase
+			// RLS on linked_accounts already scopes to rows where the user is
+			// either primary or authorized; no explicit filter needed.
+			const { data, error } = await client
 				.from("linked_accounts")
 				.select(
 					"id, primary_account_id, authorized_account_id, primary_user_name, authorized_user_name, status, confirmed_at",
 				)
-				.eq("status", "confirmed")
-				.or(`primary_user_id.eq.${userId},authorized_user_id.eq.${userId}`);
+				.eq("status", "confirmed");
 
 			if (error) throw safeDbError("Fetch linked accounts", error);
 

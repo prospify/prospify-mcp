@@ -1,14 +1,20 @@
 /**
  * Transaction tools — query and manage transactions.
+ *
+ * Every handler builds a per-request Supabase client from the authenticated
+ * user's JWT (see ../supabase-client.ts). All user scoping is enforced by
+ * RLS via `auth.uid()` — there are deliberately no `.eq("user_id", ...)`
+ * filters in this file; adding them would be redundant and would mask RLS
+ * policy gaps if any ever slipped in.
  */
 
 import type { FastMCP } from "fastmcp";
 import { z } from "zod";
-import { getUserId } from "../auth.js";
-import { supabase } from "../db.js";
+import type { ProspifySession } from "../auth.js";
+import { createUserSupabaseClient } from "../supabase-client.js";
 import { escapeLikePattern, safeDbError } from "../utils.js";
 
-export function registerTransactionTools(server: FastMCP) {
+export function registerTransactionTools(server: FastMCP<ProspifySession>) {
 	server.addTool({
 		name: "get-transactions",
 		description:
@@ -25,14 +31,13 @@ export function registerTransactionTools(server: FastMCP) {
 			includeDeleted: z.boolean().default(false).describe("Include soft-deleted transactions"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			let query = supabase
+			let query = client
 				.from("transactions")
 				.select(
 					"id, plaid_transaction_id, name, amount, effective_amount, date, category, subcategory, card_name, mask, is_splitwise, is_deleted, is_edited, splits, total_credits, credits, pending, logo_url, account_id, is_authorized_user_transaction",
 				)
-				.eq("user_id", userId)
 				.order("date", { ascending: false });
 
 			if (!args.includeDeleted) {
@@ -101,22 +106,21 @@ export function registerTransactionTools(server: FastMCP) {
 			date: z.string().max(10).optional().describe("New date (YYYY-MM-DD)"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			// Get the transaction and verify ownership
-			const { data: tx, error: txErr } = await supabase
+			// RLS ensures the lookup only returns the transaction if the user
+			// owns it; any other row appears as "not found".
+			const { data: tx, error: txErr } = await client
 				.from("transactions")
-				.select("id, plaid_transaction_id, name, amount, date, account_id, user_id")
+				.select("id, plaid_transaction_id, name, amount, date, account_id")
 				.eq("id", args.transactionId)
-				.eq("user_id", userId)
-				.single();
+				.maybeSingle();
 
 			if (txErr || !tx) throw new Error("Transaction not found or access denied");
 
-			// Upsert override
 			const overrideData: Record<string, unknown> = {
 				plaid_transaction_id: tx.plaid_transaction_id,
-				user_id: userId,
+				user_id: session!.userId,
 				original_name: tx.name,
 				original_amount: Number(tx.amount),
 				original_date: tx.date,
@@ -128,7 +132,7 @@ export function registerTransactionTools(server: FastMCP) {
 			if (args.amount) overrideData.edited_amount = args.amount;
 			if (args.date) overrideData.edited_date = args.date;
 
-			const { error: upsertErr } = await supabase
+			const { error: upsertErr } = await client
 				.from("transaction_overrides")
 				.upsert(overrideData, { onConflict: "plaid_transaction_id" });
 
@@ -147,21 +151,20 @@ export function registerTransactionTools(server: FastMCP) {
 			transactionId: z.number().describe("Transaction ID to delete"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			const { data: tx, error: txErr } = await supabase
+			const { data: tx, error: txErr } = await client
 				.from("transactions")
-				.select("id, plaid_transaction_id, name, amount, date, account_id, user_id")
+				.select("id, plaid_transaction_id, name, amount, date, account_id")
 				.eq("id", args.transactionId)
-				.eq("user_id", userId)
-				.single();
+				.maybeSingle();
 
 			if (txErr || !tx) throw new Error("Transaction not found or access denied");
 
-			const { error } = await supabase.from("transaction_overrides").upsert(
+			const { error } = await client.from("transaction_overrides").upsert(
 				{
 					plaid_transaction_id: tx.plaid_transaction_id,
-					user_id: userId,
+					user_id: session!.userId,
 					is_deleted: true,
 					original_name: tx.name,
 					original_amount: Number(tx.amount),
@@ -185,22 +188,20 @@ export function registerTransactionTools(server: FastMCP) {
 			transactionId: z.number().describe("Transaction ID to restore"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			const { data: tx } = await supabase
+			const { data: tx } = await client
 				.from("transactions")
 				.select("plaid_transaction_id")
 				.eq("id", args.transactionId)
-				.eq("user_id", userId)
-				.single();
+				.maybeSingle();
 
 			if (!tx) throw new Error("Transaction not found or access denied");
 
-			const { error } = await supabase
+			const { error } = await client
 				.from("transaction_overrides")
 				.delete()
-				.eq("plaid_transaction_id", tx.plaid_transaction_id)
-				.eq("user_id", userId);
+				.eq("plaid_transaction_id", tx.plaid_transaction_id);
 
 			if (error) throw safeDbError("Restore transaction", error);
 			return `Transaction ${args.transactionId} restored.`;
@@ -217,7 +218,10 @@ export function registerTransactionTools(server: FastMCP) {
 			newCategory: z
 				.string()
 				.max(100)
-				.regex(/^[A-Z][A-Z0-9_]*$/, "Category must be uppercase with underscores (e.g. FOOD_AND_DRINK)")
+				.regex(
+					/^[A-Z][A-Z0-9_]*$/,
+					"Category must be uppercase with underscores (e.g. FOOD_AND_DRINK)",
+				)
 				.describe("New category (e.g. FOOD_AND_DRINK, TRAVEL, ENTERTAINMENT)"),
 			applyToAll: z
 				.boolean()
@@ -225,20 +229,20 @@ export function registerTransactionTools(server: FastMCP) {
 				.describe("Apply this category to all transactions from this merchant"),
 		}),
 		execute: async (args, { session }) => {
-			const userId = await getUserId(session);
+			const client = createUserSupabaseClient(session!.accessToken);
 
-			// Update via direct table update (the view is read-only)
-			const { data: tx } = await supabase
+			const { data: tx } = await client
 				.from("transactions")
-				.select("id, name, user_id, account_id")
+				.select("id, name, account_id")
 				.eq("id", args.transactionId)
-				.eq("user_id", userId)
-				.single();
+				.maybeSingle();
 
 			if (!tx) throw new Error("Transaction not found or access denied");
 
-			// Defense-in-depth: use both id AND account_id to prevent TOCTOU
-			const { error } = await supabase
+			// RLS on transactions_table only lets the user touch their own rows;
+			// the account_id equality guards against the (already impossible)
+			// case where a stray update could straddle accounts.
+			const { error } = await client
 				.from("transactions_table")
 				.update({ category: args.newCategory, updated_at: new Date().toISOString() })
 				.eq("id", tx.id)
@@ -247,10 +251,9 @@ export function registerTransactionTools(server: FastMCP) {
 			if (error) throw new Error("Failed to update category. Please try again.");
 
 			if (args.applyToAll) {
-				// Create/update category rule
-				await supabase.from("category_rules").upsert(
+				await client.from("category_rules").upsert(
 					{
-						user_id: userId,
+						user_id: session!.userId,
 						merchant_name: tx.name,
 						category: args.newCategory,
 						updated_at: new Date().toISOString(),

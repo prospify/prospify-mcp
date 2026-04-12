@@ -13,59 +13,81 @@ An [MCP](https://modelcontextprotocol.io) server that exposes your [Prospify](ht
 
 ## Quick Start
 
-### With Claude Desktop
-
-Add to your `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "prospify": {
-      "command": "bun",
-      "args": ["run", "/path/to/prospify-mcp/src/server.ts", "--stdio"]
-    }
-  }
-}
-```
-
-Restart Claude Desktop. You'll see a tools icon indicating Prospify tools are available.
-
 ### With Claude Code
 
-Add to your project's `.mcp.json` or `~/.claude/settings.json`:
+```bash
+claude mcp add --transport http prospify https://mcp.prospify.app/mcp
+```
+
+The first call triggers OAuth 2.1 + PKCE. Your browser opens Prospify's consent page; pick **Read-only** (default) or **Read and write**, click approve, and you're done. Claude Code caches the refresh token for subsequent sessions.
+
+### With Claude Desktop
+
+Claude Desktop speaks the same Streamable HTTP transport. Add to your `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "prospify": {
-      "type": "streamable-http",
-      "url": "http://localhost:4201/mcp"
+      "url": "https://mcp.prospify.app/mcp"
     }
   }
 }
 ```
 
-### Run the server
+Restart Claude Desktop, click the Prospify entry, and complete the OAuth consent flow in your browser.
+
+### Run the server locally
 
 ```bash
 git clone <repo-url>
 cd prospify-mcp
-cp .env.example .env  # Fill in Supabase + Google OAuth credentials
+cp .env.example .env  # Fill in SUPABASE_URL + SUPABASE_PUBLISHABLE_KEY
 bun install
 bun dev  # HTTP mode on port 4201
 ```
 
 ## Authentication
 
-The server uses **Google OAuth 2.1** (the same Google account you use for prospify.app). The flow:
+The server is a pure **OAuth 2.1 Protected Resource** (MCP spec 2025-03-26). All authentication is delegated to Supabase's built-in OAuth server, and row-level security is enforced by Postgres.
 
-1. MCP client (Claude Desktop/Code) discovers OAuth endpoints via `/.well-known/oauth-authorization-server`
-2. User is redirected to Google sign-in
-3. After auth, the server maps the Google email to your Supabase user ID
-4. All subsequent MCP requests use this authenticated session
+```
+Claude Desktop / Claude Code
+        │
+        │  1. MCP request, no token
+        ▼
+  prospify-mcp           2. 401 + WWW-Authenticate with
+  (this server)             resource_metadata pointing at
+                            /.well-known/oauth-protected-resource
+        │
+        │  3. Client reads PRM → Supabase Authorization Server
+        ▼
+  Supabase Auth          4. Dynamic client registration
+  (OAuth 2.1 server)        /auth/v1/oauth/clients/register
+        │
+        │  5. /oauth/authorize (PKCE) → browser opens
+        ▼
+  prospify.app/oauth/consent  6. User approves, picks scope
+        │
+        ▼
+  Supabase → /oauth/token  7. PKCE code exchange → signed JWT
+        │
+        │  8. Client retries MCP request with
+        │     Authorization: Bearer <jwt>
+        ▼
+  prospify-mcp           9. jwtVerify via JWKS (ES256)
+                           → per-request Supabase client
+                           → RLS enforces auth.uid()
+```
 
-For **stdio mode** (Claude Desktop), auth is handled automatically via the OAuth flow.
-For **HTTP mode** (Claude Code), the client sends `Authorization: Bearer <token>` on every request.
+**Properties:**
+
+- The MCP server holds **zero admin credentials**. No service role key, no Google OAuth secrets, no email→user lookups.
+- A compromise of the server's env leaks only the Supabase **publishable key** (the same one that ships in the web client).
+- RLS is the sole authorization layer; every tool uses a `createUserSupabaseClient(jwt)` with the caller's token attached, and `auth.uid()` in the policies does the row filtering.
+- A `client_id` claim is required on every token — proving it came through the OAuth flow and not, say, a leaked password-grant JWT. An optional `MCP_ALLOWED_CLIENT_IDS` env var pins acceptance to registered clients in production.
+
+See `src/auth.ts` and `src/supabase-client.ts` for the full implementation.
 
 ## Available Tools
 
@@ -117,70 +139,38 @@ For **HTTP mode** (Claude Code), the client sends `Authorization: Bearer <token>
 |-----|-------------|
 | `prospify://accounts` | Connected accounts (JSON) |
 
-## Architecture
-
-```
-Claude Desktop / Claude Code
-        |
-        |  MCP Protocol (stdio or HTTP Stream)
-        v
-+-------------------------+
-|   prospify-mcp server   |  <-- FastMCP + Bun
-|   (port 4201)           |
-|                         |
-|  Google OAuth           |  User signs in with same Google account
-|  -> Supabase user ID   |  Email mapped to Supabase UUID
-|  -> Direct DB queries   |  Service role key, always userId-filtered
-+-------------------------+
-        |
-        v
-   Supabase (PostgreSQL)
-```
-
-The server talks directly to Supabase using the service role key (bypassing RLS). Every query is filtered by the authenticated user's ID — users can only access their own data.
-
 ## Development
 
 ```bash
 bun dev              # Start with hot reload (HTTP mode, port 4201)
-bun start --stdio    # Start in stdio mode (for Claude Desktop)
+bun start            # Start in HTTP mode (no watch)
 bun test             # Run unit + integration tests
 bun test:all         # Run all tests including E2E
 bun run lint         # Lint with Biome
 bun run type-check   # TypeScript type check
-bun run validate     # Protocol-level validation
 bun run inspect      # Open MCP Inspector UI
-bun run test-auth    # Generate test auth tokens
+bun run test-auth    # Generate a dev JWT for the MCP inspector
 ```
 
 ## Testing
 
-The test suite includes 138 tests across 14 files:
-
-| Category | Tests | What's tested |
-|----------|-------|---------------|
-| Unit | 61 | Auth, env, fixtures, all Zod schemas, LIKE injection, string limits, security, category regex |
-| Integration | 27 | Real Supabase queries, auth resolution, cross-user access control, SQL injection safety, edge cases |
-| E2E (Protocol) | 16 | Server startup, health check, OAuth discovery (RFC 8414/9728), MCP protocol, stdio transport |
-| E2E (MCP Client) | 12 | Full MCP SDK client — tools/list, tool calling, prompts, resources, auth guards |
-| E2E (Validation) | 14 | Tool argument validation, schema rejection, description quality, annotation checks |
-| E2E (Completeness) | 8 | Canonical 25-tool registry check, required params, prompts, resources |
-
 ```bash
 bun test:unit         # Unit tests (no external deps)
-bun test:integration  # Integration tests (needs Supabase credentials)
-bun test:e2e          # E2E tests (starts server instances)
+bun test:integration  # Integration tests (needs SUPABASE_URL + SUPABASE_PUBLISHABLE_KEY + SUPABASE_SERVICE_ROLE_KEY for the JWT-minting test helper)
+bun test:e2e          # E2E tests (spawns server instances)
 bun test:all          # Everything
 ```
+
+Integration tests deliberately use a **user-scoped** Supabase client — none of the queries carry a `.eq("user_id", ...)` filter. If any of the "cannot see other user's rows" tests start returning data, RLS regressed and we have a security incident.
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SUPABASE_URL` | Yes | Supabase project URL |
-| `SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase anonymous/publishable key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (server-only) |
-| `GOOGLE_CLIENT_ID` | Yes | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth client secret |
+| `SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase publishable (anon) key — the one that ships with the web client |
+| `MCP_ALLOWED_CLIENT_IDS` | No | Comma-separated allowlist of Supabase OAuth client IDs. Empty = accept any OAuth-issued token (required for DCR). Set this in production if you want to pin to specific clients. |
 | `MCP_SERVER_PORT` | No | Server port (default: 4201) |
-| `MCP_BASE_URL` | No | Base URL for OAuth callbacks (default: http://localhost:4201) |
+| `MCP_BASE_URL` | No | Public base URL used as `resource` in the PRM metadata (default: http://localhost:4201) |
+
+Notably absent: `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. The MCP server never needs them.
