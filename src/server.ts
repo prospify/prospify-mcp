@@ -128,27 +128,34 @@ Then recommend:
 	},
 });
 
-// Start server
-const transportType = process.argv.includes("--stdio") ? "stdio" : "httpStream";
+export { server };
 
-if (transportType === "stdio") {
-	server.start({ transportType: "stdio" });
-	console.error("Prospify MCP server started (stdio mode)");
-} else {
-	server.start({
-		transportType: "httpStream",
-		httpStream: {
-			port: env.MCP_SERVER_PORT,
-			// Bind explicitly to IPv4 localhost. FastMCP's default binds to
-			// the IPv6 loopback only (::1), which breaks clients that
-			// hardcode 127.0.0.1 (mcp-remote does).
-			host: "127.0.0.1",
-		},
-	});
-	console.log(`Prospify MCP server started on port ${env.MCP_SERVER_PORT}`);
-	console.log(`Health check: http://localhost:${env.MCP_SERVER_PORT}/healthz`);
-	console.log(`MCP endpoint: http://localhost:${env.MCP_SERVER_PORT}/mcp`);
-	console.log(
-		`PRM metadata: http://localhost:${env.MCP_SERVER_PORT}/.well-known/oauth-protected-resource`,
-	);
+// Self-start when run directly (local dev / CLI). Vercel and other
+// hosts import `server` and call `.start()` themselves.
+const isDirectRun =
+	typeof Bun !== "undefined"
+		? Bun.main === import.meta.path
+		: process.argv[1]?.endsWith("server.ts") || process.argv[1]?.endsWith("server.js");
+
+if (isDirectRun) {
+	const transportType = process.argv.includes("--stdio") ? "stdio" : "httpStream";
+
+	if (transportType === "stdio") {
+		server.start({ transportType: "stdio" });
+		console.error("Prospify MCP server started (stdio mode)");
+	} else {
+		server.start({
+			transportType: "httpStream",
+			httpStream: {
+				port: env.MCP_SERVER_PORT,
+				host: "127.0.0.1",
+			},
+		});
+		console.log(`Prospify MCP server started on port ${env.MCP_SERVER_PORT}`);
+		console.log(`Health check: http://localhost:${env.MCP_SERVER_PORT}/healthz`);
+		console.log(`MCP endpoint: http://localhost:${env.MCP_SERVER_PORT}/mcp`);
+		console.log(
+			`PRM metadata: http://localhost:${env.MCP_SERVER_PORT}/.well-known/oauth-protected-resource`,
+		);
+	}
 }
