@@ -21,16 +21,20 @@
 		"validate": "bun run scripts/validate-mcp.ts"
 	},
 	"dependencies": {
-		"@hono/node-server": "^1.19.13",
 		"@supabase/supabase-js": "^2.49.0",
 		"fastmcp": "^3.34.0",
 		"jose": "^5.9.0",
+		"mcp-handler": "^1.1.0",
+		"next": "^16.2.3",
+		"react": "^19.2.5",
+		"react-dom": "^19.2.5",
 		"zod": "^3.24.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.8.0",
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@types/bun": "latest",
+		"@types/react": "19.2.14",
 		"typescript": "^5.7.0"
 	}
 }

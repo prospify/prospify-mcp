@@ -1,16 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/$1" }
-  ],
-  "functions": {
-    "api/**/*.ts": {
-      "maxDuration": 30
-    }
-  },
+  "framework": "nextjs",
+  "installCommand": "bun install",
+  "buildCommand": "bun next build",
   "git": {
     "deploymentEnabled": false
-  },
-  "installCommand": "bun install",
-  "framework": null
+  }
 }
