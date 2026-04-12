@@ -46,4 +46,11 @@ export const env = {
 	MCP_ALLOWED_CLIENT_IDS: optionalList("MCP_ALLOWED_CLIENT_IDS"),
 	MCP_SERVER_PORT: Number.parseInt(optional("MCP_SERVER_PORT", "4201"), 10),
 	MCP_BASE_URL: optional("MCP_BASE_URL", "http://localhost:4201"),
+	/**
+	 * Base URL of the Prospify web app (prospify-tools). Used as the OAuth
+	 * Authorization Server issuer in the Protected Resource Metadata so MCP
+	 * clients see a Prospify-branded authorize URL instead of a raw Supabase one.
+	 * The web app proxies AS metadata and the authorize redirect to Supabase.
+	 */
+	PROSPIFY_APP_URL: optional("PROSPIFY_APP_URL", "http://localhost:3000"),
 };

@@ -6,6 +6,9 @@
  * identical; only the registration wrapper changes (FastMCP → mcp-handler).
  */
 
+// Force Node.js runtime — jose/supabase-js need process.env and Node APIs
+export const runtime = "nodejs";
+
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { createClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -424,7 +427,8 @@ const verifyToken = async (
 			scopes,
 			extra: { userId: payload.sub, email: payload.email },
 		};
-	} catch {
+	} catch (e) {
+		console.error("[verifyToken] JWT verification failed:", (e as Error).message);
 		return undefined;
 	}
 };

@@ -32,7 +32,7 @@ const server = new FastMCP<ProspifySession>({
 		enabled: true,
 		protectedResource: {
 			resource: env.MCP_BASE_URL,
-			authorizationServers: [`${env.SUPABASE_URL}/auth/v1`],
+			authorizationServers: [env.PROSPIFY_APP_URL],
 			scopesSupported: ["openid", "email", "profile"],
 			bearerMethodsSupported: ["header"],
 			resourceName: "Prospify Personal Finance",
