@@ -25,6 +25,7 @@ async function main() {
 			...process.env,
 			MCP_SERVER_PORT: String(MCP_PORT),
 			MCP_BASE_URL: MCP_URL,
+			PROSPIFY_APP_URL: "http://localhost:3000",
 		},
 		stdout: "pipe",
 		stderr: "pipe",

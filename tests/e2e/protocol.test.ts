@@ -37,6 +37,7 @@ describe("MCP Protocol Compliance", () => {
 				...process.env,
 				MCP_SERVER_PORT: String(MCP_PORT),
 				MCP_BASE_URL: MCP_URL,
+				PROSPIFY_APP_URL: "http://localhost:3000",
 			},
 			stdout: "pipe",
 			stderr: "pipe",
@@ -77,8 +78,8 @@ describe("MCP Protocol Compliance", () => {
 		expect(meta.authorization_servers).toBeArray();
 		const servers = meta.authorization_servers as string[];
 		expect(servers.length).toBeGreaterThan(0);
-		// Must point at Supabase Auth, not at ourselves
-		expect(servers[0]).toContain("supabase.co/auth/v1");
+		// Must point at the Prospify app (which proxies AS metadata to Supabase)
+		expect(servers[0]).not.toContain("/mcp");
 	});
 
 	// --- MCP Protocol ---
