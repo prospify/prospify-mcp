@@ -51,10 +51,10 @@ describe("MCP SDK Client", () => {
 
 	// --- Tools ---
 
-	test("tools/list returns exactly 25 tools", async () => {
+	test("tools/list returns exactly 28 tools", async () => {
 		const result = await client.listTools();
 		expect(result.tools).toBeArray();
-		expect(result.tools.length).toBe(25);
+		expect(result.tools.length).toBe(28);
 	});
 
 	test("each tool has name, description, and inputSchema", async () => {
@@ -74,7 +74,9 @@ describe("MCP SDK Client", () => {
 		const names = result.tools.map((t) => t.name);
 
 		const expectedTools = [
+			"get-connection-health",
 			"get-transactions",
+			"refresh-transactions",
 			"get-accounts",
 			"get-cards-with-benefits",
 			"get-benefit-summary",
@@ -85,6 +87,7 @@ describe("MCP SDK Client", () => {
 			"get-user-profile",
 			"get-linked-accounts",
 			"get-splitwise-status",
+			"sync-splitwise-data",
 			"get-splitwise-friends",
 			"get-splitwise-groups",
 			"search-transactions-for-linking",

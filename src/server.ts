@@ -18,6 +18,7 @@ import { env } from "./env.js";
 import { createUserSupabaseClient } from "./supabase-client.js";
 import { registerAccountTools } from "./tools/accounts.js";
 import { registerBenefitTools } from "./tools/benefits.js";
+import { registerConnectionHealthTools } from "./tools/connection-health.js";
 import { registerCreditTools } from "./tools/credits.js";
 import { registerProfileTools } from "./tools/profile.js";
 import { registerSplitTools } from "./tools/splits.js";
@@ -48,6 +49,7 @@ const server = new FastMCP<ProspifySession>({
 });
 
 // Register all tools
+registerConnectionHealthTools(server);
 registerTransactionTools(server);
 registerAccountTools(server);
 registerBenefitTools(server);
@@ -138,24 +140,13 @@ const isDirectRun =
 		: process.argv[1]?.endsWith("server.ts") || process.argv[1]?.endsWith("server.js");
 
 if (isDirectRun) {
-	const transportType = process.argv.includes("--stdio") ? "stdio" : "httpStream";
-
-	if (transportType === "stdio") {
+	if (process.argv.includes("--stdio")) {
 		server.start({ transportType: "stdio" });
 		console.error("Prospify MCP server started (stdio mode)");
 	} else {
-		server.start({
-			transportType: "httpStream",
-			httpStream: {
-				port: env.MCP_SERVER_PORT,
-				host: "127.0.0.1",
-			},
-		});
-		console.log(`Prospify MCP server started on port ${env.MCP_SERVER_PORT}`);
-		console.log(`Health check: http://localhost:${env.MCP_SERVER_PORT}/healthz`);
-		console.log(`MCP endpoint: http://localhost:${env.MCP_SERVER_PORT}/mcp`);
-		console.log(
-			`PRM metadata: http://localhost:${env.MCP_SERVER_PORT}/.well-known/oauth-protected-resource`,
+		console.error(
+			"The HTTP transport is served by Next.js. Run `bun dev` or `bun start`; use `--stdio` for FastMCP stdio.",
 		);
+		process.exit(1);
 	}
 }

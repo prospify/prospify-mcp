@@ -21,7 +21,7 @@ To configure the Prospify MCP server in your client, add the following to your M
   "mcpServers": {
     "prospify": {
       "type": "http",
-      "url": "https://mcp.prospify.app/mcp"
+      "url": "https://mcp.prospify.app/api/mcp"
     }
   }
 }
@@ -32,7 +32,7 @@ Your MCP client will automatically prompt you to log in to Prospify during setup
 ### Claude Code
 
 ```bash
-claude mcp add --transport http prospify https://mcp.prospify.app/mcp
+claude mcp add --transport http prospify https://mcp.prospify.app/api/mcp
 ```
 
 ### Claude Desktop
@@ -48,7 +48,7 @@ Most MCP clients accept the same configuration format. If your client doesn't su
   "mcpServers": {
     "prospify": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.prospify.app/mcp"]
+      "args": ["-y", "mcp-remote", "https://mcp.prospify.app/api/mcp"]
     }
   }
 }
@@ -75,6 +75,7 @@ The following Prospify tools are available to the LLM. Every tool runs against t
 
 ### Transactions
 
+- `refresh-transactions`: Force-refresh the user's connected bank and credit-card transactions from Plaid and return added, modified, and removed counts.
 - `get-transactions`: List transactions with optional filters (account, date range, search, category, limit, offset). Returns name, amount, date, category, account, and split info.
 - `edit-transaction`: Edit a transaction's display name, amount, or date. Changes are stored as overrides — original Plaid data is preserved.
 - `delete-transaction`: Soft-delete a transaction (hides it from views; reversible).
@@ -83,6 +84,7 @@ The following Prospify tools are available to the LLM. Every tool runs against t
 
 ### Accounts & Profile
 
+- `get-connection-health`: Check Plaid institution and Splitwise connection health, including latest sync timestamps.
 - `get-accounts`: List all connected bank accounts and credit cards — name, type, balance, mask, institution logo, and credit card details when applicable.
 - `get-user-profile`: Get the user's Prospify profile (age, income, credit score range).
 - `get-linked-accounts`: Get confirmed primary-cardholder / authorized-user relationships.
@@ -112,6 +114,7 @@ The following Prospify tools are available to the LLM. Every tool runs against t
 
 ### Splitwise
 
+- `sync-splitwise-data`: Synchronize the connected Splitwise profile, friends, groups, and recent expenses into Prospify.
 - `get-splitwise-status`: Check whether the user's Splitwise account is connected.
 - `get-splitwise-friends`: List Splitwise friends.
 - `get-splitwise-groups`: List Splitwise groups with members.
@@ -171,7 +174,7 @@ git clone https://github.com/prospify/prospify-mcp
 cd prospify-mcp
 cp .env.example .env  # Fill in SUPABASE_URL + SUPABASE_PUBLISHABLE_KEY
 bun install
-bun dev               # HTTP mode on port 4201
+bun dev               # HTTP mode on port 4201 (/api/mcp)
 ```
 
 ### Available scripts
@@ -179,12 +182,13 @@ bun dev               # HTTP mode on port 4201
 ```bash
 bun dev                # Start with hot reload (HTTP mode, port 4201)
 bun start              # Start in HTTP mode (no watch)
+bun start --stdio      # Start the local stdio transport
 bun test               # Run unit + integration tests
 bun test:all           # Run all tests including E2E
 bun run lint           # Lint with Biome
 bun run type-check     # TypeScript type check
 bun run inspect        # Open MCP Inspector UI
-bun run test-auth      # Generate a dev JWT for the MCP inspector
+bun run test-auth      # Generate a temporary Supabase JWT for RLS debugging
 ```
 
 ### Environment variables
@@ -196,5 +200,6 @@ bun run test-auth      # Generate a dev JWT for the MCP inspector
 | `MCP_BASE_URL` | No | Public base URL advertised in `/.well-known/oauth-protected-resource` (default: `http://localhost:4201`) |
 | `MCP_SERVER_PORT` | No | Server port (default: `4201`) |
 | `MCP_ALLOWED_CLIENT_IDS` | No | Comma-separated allowlist of Supabase OAuth client IDs. Empty = accept any OAuth-issued token (required for Dynamic Client Registration). Set in production to pin to specific clients. |
+| `PROSPIFY_APP_URL` | No | Prospify app URL used by refresh and sync tools (default: `https://prospify.app`) |
 
 Notably absent: `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. The MCP server never needs them.

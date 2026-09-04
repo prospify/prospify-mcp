@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createUserSupabaseClient } from "../../src/supabase-client";
+import { getConnectionHealth } from "../../src/lib/connection-health";
 import { getTestSession } from "../helpers/auth";
 
 let accessToken: string;
@@ -114,6 +115,23 @@ describe("tool queries with user-scoped client", () => {
 		expect(error).toBeNull();
 		// data may be null if user has no Splitwise connection
 		expect(data === null || typeof data === "object").toBe(true);
+	});
+
+	test("get-connection-health: returns user-scoped Plaid and Splitwise status", async () => {
+		const { client } = await getClient();
+		const health = await getConnectionHealth(accessToken);
+
+		expect(health.checkedAt).toBeString();
+		expect(["healthy", "needs_attention", "not_connected"]).toContain(health.overallStatus);
+		expect(health.plaid.items).toBeArray();
+		expect(health.splitwise.connected).toBeBoolean();
+
+		const { data: directItems, error } = await client
+			.from("items")
+			.select("id, plaid_institution_id, status")
+			.limit(100);
+		expect(error).toBeNull();
+		expect(health.plaid.items.length).toBe(directItems?.length ?? 0);
 	});
 
 	test("get-linked-accounts: query linked_accounts (RLS-scoped)", async () => {

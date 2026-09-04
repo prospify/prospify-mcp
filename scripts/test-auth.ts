@@ -1,14 +1,16 @@
 /**
- * Generate a test auth token for the MCP server.
+ * Generate a temporary Supabase password-grant token for RLS debugging.
+ *
+ * Password-grant tokens intentionally do not contain the OAuth `client_id`
+ * claim required by the protected HTTP MCP endpoint, so this script is not
+ * an HTTP MCP authentication shortcut. Use the OAuth browser flow for HTTP,
+ * or the stdio transport for local protocol inspection.
  *
  * Usage:
  *   bun run scripts/test-auth.ts [email]
  *
- * Outputs a bearer token that can be used with the MCP inspector:
- *   npx @modelcontextprotocol/inspector --cli http://localhost:4201/mcp \
- *     --transport http \
- *     --header "Authorization: Bearer <token>" \
- *     --method tools/list
+ * The token is written to .auth/test-session.json for direct Supabase/RLS
+ * debugging and expires according to the project's normal token policy.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -94,10 +96,8 @@ async function main() {
 	);
 	console.log(`Shell env written to ${envPath}`);
 
-	console.log("\nUsage with MCP inspector:");
-	console.log("  1. Start server: bun dev");
 	console.log(
-		`  2. npx @modelcontextprotocol/inspector --cli http://localhost:4201/mcp --transport http --header "Authorization: Bearer ${access_token}" --method tools/list`,
+		"\nThis is a password-grant token for Supabase/RLS debugging; it is not accepted by the OAuth-protected HTTP MCP endpoint.",
 	);
 }
 

@@ -1,0 +1,11 @@
+# Never upload local secrets or authentication artifacts.
+.env
+.env.*
+!.env.example
+.auth/
+
+# Local/generated files are rebuilt by Vercel.
+node_modules/
+.next/
+dist/
+bun.lock

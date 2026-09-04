@@ -46,4 +46,5 @@ export const env = {
 	MCP_ALLOWED_CLIENT_IDS: optionalList("MCP_ALLOWED_CLIENT_IDS"),
 	MCP_SERVER_PORT: Number.parseInt(optional("MCP_SERVER_PORT", "4201"), 10),
 	MCP_BASE_URL: optional("MCP_BASE_URL", "http://localhost:4201"),
+	PROSPIFY_APP_URL: optional("PROSPIFY_APP_URL", "https://prospify.app"),
 };

@@ -8,7 +8,15 @@ let serverProcess: ReturnType<typeof Bun.spawn> | null = null;
 describe("MCP server E2E", () => {
 	beforeAll(async () => {
 		// Start the MCP server on test port
-		serverProcess = Bun.spawn(["bun", "run", "src/server.ts"], {
+		serverProcess = Bun.spawn([
+			"bun",
+			"next",
+			"dev",
+			"--hostname",
+			"127.0.0.1",
+			"--port",
+			String(MCP_PORT),
+		], {
 			env: {
 				...process.env,
 				MCP_SERVER_PORT: String(MCP_PORT),
@@ -37,8 +45,14 @@ describe("MCP server E2E", () => {
 			console.warn("MCP server failed to start — skipping HTTP E2E tests (likely missing OAuth config in CI)");
 			serverProcess?.kill();
 			serverProcess = null;
+			return;
 		}
-	});
+
+		// Compile the dynamic routes before individual tests start their 5-second
+		// timeout. Next.js development compilation can be slower on a cold start.
+		await fetch(`${MCP_URL}/api/mcp`, { method: "POST" });
+		await fetch(`${MCP_URL}/.well-known/oauth-protected-resource`);
+	}, 15000);
 
 	afterAll(() => {
 		if (serverProcess) {
@@ -58,7 +72,7 @@ describe("MCP server E2E", () => {
 	test("MCP endpoint exists", async () => {
 		if (!serverProcess) return; // Skip in CI
 		// The MCP endpoint should respond (even if auth fails)
-		const res = await fetch(`${MCP_URL}/mcp`, {
+		const res = await fetch(`${MCP_URL}/api/mcp`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({

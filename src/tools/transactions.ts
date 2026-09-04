@@ -11,10 +11,37 @@
 import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import type { ProspifySession } from "../auth.js";
+import { env } from "../env.js";
 import { createUserSupabaseClient } from "../supabase-client.js";
 import { escapeLikePattern, safeDbError } from "../utils.js";
 
 export function registerTransactionTools(server: FastMCP<ProspifySession>) {
+	server.addTool({
+		name: "refresh-transactions",
+		description:
+			"Force-refresh the user's connected bank and credit-card transactions from Plaid. Returns counts of added, modified, and removed transactions.",
+		annotations: { destructiveHint: false, idempotentHint: false },
+		parameters: z.object({}),
+		execute: async (_args, { session }) => {
+			const response = await fetch(
+				`${env.PROSPIFY_APP_URL.replace(/\/$/, "")}/api/mcp/refresh-transactions`,
+				{
+					method: "POST",
+					headers: { Authorization: `Bearer ${session!.accessToken}` },
+				},
+			);
+
+			const body = (await response.json().catch(() => null)) as
+				| { error?: string; success?: boolean; addedCount?: number; modifiedCount?: number; removedCount?: number }
+				| null;
+			if (!response.ok) {
+				throw new Error(body?.error || `Transaction refresh failed (${response.status})`);
+			}
+
+			return JSON.stringify(body, null, 2);
+		},
+	});
+
 	server.addTool({
 		name: "get-transactions",
 		description:

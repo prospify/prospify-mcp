@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 const MCP_PORT = 4204;
 const MCP_URL = `http://localhost:${MCP_PORT}`;
+const MCP_ENDPOINT = `${MCP_URL}/api/mcp`;
 
 let serverProcess: ReturnType<typeof Bun.spawn> | null = null;
 let serverReady = false;
@@ -32,7 +33,15 @@ async function waitForServer(url: string, timeoutMs = 6000) {
 
 describe("MCP Protocol Compliance", () => {
 	beforeAll(async () => {
-		serverProcess = Bun.spawn(["bun", "run", "src/server.ts"], {
+		serverProcess = Bun.spawn([
+			"bun",
+			"next",
+			"dev",
+			"--hostname",
+			"127.0.0.1",
+			"--port",
+			String(MCP_PORT),
+		], {
 			env: {
 				...process.env,
 				MCP_SERVER_PORT: String(MCP_PORT),
@@ -44,6 +53,10 @@ describe("MCP Protocol Compliance", () => {
 		try {
 			await waitForServer(MCP_URL);
 			serverReady = true;
+			// Warm the dynamic routes before individual tests start their 5-second
+			// timeout. Next.js development compilation can be slower on a cold start.
+			await fetch(MCP_ENDPOINT, { method: "POST" });
+			await fetch(`${MCP_URL}/.well-known/oauth-protected-resource`);
 		} catch {
 			console.warn(
 				"HTTP server failed to start — skipping protocol tests (likely CI without env vars)",
@@ -85,7 +98,7 @@ describe("MCP Protocol Compliance", () => {
 
 	test("MCP endpoint rejects unauthenticated requests with 401", async () => {
 		if (!serverReady) return;
-		const res = await fetch(`${MCP_URL}/mcp`, {
+		const res = await fetch(MCP_ENDPOINT, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -106,7 +119,7 @@ describe("MCP Protocol Compliance", () => {
 
 	test("MCP endpoint rejects invalid Bearer token", async () => {
 		if (!serverReady) return;
-		const res = await fetch(`${MCP_URL}/mcp`, {
+		const res = await fetch(MCP_ENDPOINT, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -128,7 +141,7 @@ describe("MCP Protocol Compliance", () => {
 
 	test("MCP endpoint returns proper content type", async () => {
 		if (!serverReady) return;
-		const res = await fetch(`${MCP_URL}/mcp`, {
+		const res = await fetch(MCP_ENDPOINT, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -158,13 +171,13 @@ describe("MCP Protocol Compliance", () => {
 
 	test("GET on MCP endpoint returns method info or error", async () => {
 		if (!serverReady) return;
-		const res = await fetch(`${MCP_URL}/mcp`);
+		const res = await fetch(MCP_ENDPOINT);
 		expect([200, 400, 401, 405]).toContain(res.status);
 	});
 
 	test("server responds to OPTIONS preflight", async () => {
 		if (!serverReady) return;
-		const res = await fetch(`${MCP_URL}/mcp`, { method: "OPTIONS" });
+		const res = await fetch(MCP_ENDPOINT, { method: "OPTIONS" });
 		expect([200, 204, 401]).toContain(res.status);
 	});
 });

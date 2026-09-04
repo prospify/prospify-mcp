@@ -10,7 +10,7 @@
  */
 
 import { type SupabaseClient, createClient } from "@supabase/supabase-js";
-import { env } from "./env.js";
+import { env } from "./env";
 
 export function createUserSupabaseClient(accessToken: string): SupabaseClient {
 	return createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {

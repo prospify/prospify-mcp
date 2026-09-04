@@ -4,6 +4,5 @@ const nextConfig = {
   // Next.js build to avoid conflicts with bun-types on Vercel's
   // Node runtime.
   typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
 };
 export default nextConfig;

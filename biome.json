@@ -21,7 +21,7 @@
 		"lineWidth": 100
 	},
 	"files": {
-		"ignore": ["node_modules", "dist", "bun.lock"]
+		"ignore": ["node_modules", "dist", ".next", "next-env.d.ts", "bun.lock"]
 	},
 	"overrides": [
 		{

@@ -11,9 +11,12 @@ import { createClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
+import { getConnectionHealth } from "../../../src/lib/connection-health";
+import { syncSplitwiseForUser } from "../../../src/lib/backend-mcp";
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY!;
+const PROSPIFY_APP_URL = (process.env.PROSPIFY_APP_URL || "https://prospify.app").replace(/\/$/, "");
 
 // Lazy JWKS
 let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
@@ -49,6 +52,21 @@ function text(data: unknown) {
 const handler = createMcpHandler(
 	(server) => {
 		// ── Transactions ──
+
+		server.tool(
+			"refresh-transactions",
+			"Force-refresh the user's connected bank and credit-card transactions from Plaid. Returns counts of added, modified, and removed transactions.",
+			{},
+			async (_args, extra) => {
+				const response = await fetch(`${PROSPIFY_APP_URL}/api/mcp/refresh-transactions`, {
+					method: "POST",
+					headers: { Authorization: `Bearer ${extra.authInfo!.token}` },
+				});
+				const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+				if (!response.ok) throw new Error((typeof body?.error === "string" && body.error) || `Transaction refresh failed (${response.status})`);
+				return text(body ?? { success: true });
+			},
+		);
 
 		server.tool(
 			"get-transactions",
@@ -109,6 +127,13 @@ const handler = createMcpHandler(
 			}
 			return text({ count: accounts?.length ?? 0, accounts: (accounts ?? []).map((a) => ({ id: a.id, name: a.name, mask: a.mask, type: a.type, subtype: a.subtype, currentBalance: a.current_balance ? Number(a.current_balance) : null, availableBalance: a.available_balance ? Number(a.available_balance) : null, currency: a.iso_currency_code, isSplitwise: a.is_splitwise, card: cardMap[a.id] ?? null })) });
 		});
+
+		server.tool(
+			"get-connection-health",
+			"Check the health of the user's connected Plaid institutions and Splitwise account, including statuses and latest sync timestamps.",
+			{},
+			async (_args, extra) => text(await getConnectionHealth(extra.authInfo!.token)),
+		);
 
 		server.tool("get-user-profile", "Get user's Prospify profile (age, income, credit score).", {}, async (_args, extra) => {
 			const client = createUserClient(extra.authInfo!.token);
@@ -371,6 +396,13 @@ const handler = createMcpHandler(
 		});
 
 		// ── Splitwise ──
+
+		server.tool(
+			"sync-splitwise-data",
+			"Synchronize the user's connected Splitwise profile, friends, groups, and recent expenses into Prospify.",
+			{},
+			async (_args, extra) => text(await syncSplitwiseForUser(extra.authInfo!.token)),
+		);
 
 		server.tool("get-splitwise-status", "Check Splitwise connection.", {}, async (_args, extra) => {
 			const client = createUserClient(extra.authInfo!.token);

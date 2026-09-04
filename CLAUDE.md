@@ -9,9 +9,9 @@ Always use `bun` (not npm or pnpm).
 
 ```bash
 bun install          # Install dependencies
-bun dev              # Start with hot reload (HTTP mode, port 4201)
-bun start            # Start in production mode
-bun start --stdio    # Start in stdio mode (for Claude Desktop)
+bun dev              # Start Next.js with hot reload (HTTP mode, port 4201)
+bun start            # Start Next.js in production mode
+bun start --stdio    # Start FastMCP in stdio mode (for local protocol clients)
 ```
 
 ## Testing
@@ -21,7 +21,7 @@ bun test:unit         # Unit tests (no external deps needed)
 bun test:integration  # Integration tests (requires Supabase credentials in .env)
 bun test:e2e          # E2E tests (spawns server processes, tests protocol)
 bun test              # Unit + integration
-bun test:all          # All 138 tests
+bun test:all          # All unit, integration, and E2E tests
 bun run validate      # Protocol-level validation (health, OAuth, MCP handshake)
 ```
 
@@ -40,7 +40,7 @@ bun run type-check # TypeScript strict mode
 
 ## Architecture
 
-- **FastMCP** server, pure OAuth 2.1 Protected Resource (MCP spec 2025-03-26)
+- **Next.js + mcp-handler** HTTP server, plus a FastMCP stdio server for local protocol clients
 - Authentication is delegated to **Supabase's built-in OAuth server**; this server holds zero admin credentials
 - Every tool builds a **per-request user-scoped Supabase client** from the caller's JWT
 - **Row-level security** (`auth.uid()`) is the sole authorization layer — no `.eq("user_id", ...)` filters anywhere
@@ -49,26 +49,28 @@ bun run type-check # TypeScript strict mode
 
 | File | Purpose |
 |------|---------|
-| `src/server.ts` | FastMCP entry point, registers tools/resources/prompts, wires `authenticate` + PRM metadata |
+| `src/server.ts` | FastMCP stdio entry point, registers tools/resources/prompts for local protocol clients |
+| `app/api/[transport]/route.ts` | Next.js/Vercel HTTP MCP endpoint with OAuth authentication |
 | `src/auth.ts` | JWT verification via Supabase JWKS (ES256); returns `ProspifySession` or throws 401 + `WWW-Authenticate` |
 | `src/supabase-client.ts` | `createUserSupabaseClient(accessToken)` — per-request RLS-scoped client |
 | `src/env.ts` | Environment variable validation (no service role, no Google) |
-| `src/tools/transactions.ts` | 5 tools: get, edit, delete, restore, change-category |
+| `src/tools/transactions.ts` | 6 tools: refresh, get, edit, delete, restore, change-category |
 | `src/tools/accounts.ts` | 1 tool: get-accounts |
 | `src/tools/benefits.ts` | 7 tools: cards-with-benefits, summary, details, mark-used, auto-match, search, (legacy helper) |
 | `src/tools/subscriptions.ts` | 3 tools: get, dismiss, restore |
 | `src/tools/credits.ts` | 5 tools: matches, confirm, reject, available-credits, link |
-| `src/tools/splits.ts` | 3 tools: status, friends, groups |
+| `src/tools/connection-health.ts` | 1 tool: connection health |
+| `src/tools/splits.ts` | 4 tools: sync, status, friends, groups |
 | `src/tools/profile.ts` | 2 tools: user-profile, linked-accounts |
 
 ### Transport modes
 
-- **HTTP Stream** (default): `bun dev` — runs on port 4201, exposes `/mcp` endpoint
+- **HTTP Stream** (default): `bun dev` — runs on port 4201, exposes `/api/mcp`
 - **stdio**: `bun start --stdio` — available but unused in production; stdio mode has no way to present a JWT, so it exists mainly for protocol tests
 
 ### Auth flow
 
-1. MCP client hits `/mcp` with no token → server returns 401 with `WWW-Authenticate: Bearer resource_metadata=…`
+1. MCP client hits `/api/mcp` with no token → server returns 401 with `WWW-Authenticate: Bearer resource_metadata=…`
 2. Client fetches `/.well-known/oauth-protected-resource` → learns about Supabase as the Authorization Server
 3. Client does Dynamic Client Registration at Supabase (`/auth/v1/oauth/clients/register`)
 4. Client walks OAuth 2.1 + PKCE: `/authorize` → browser → `prospify.app/oauth/consent` → user approves → `/token`
@@ -86,6 +88,7 @@ SUPABASE_PUBLISHABLE_KEY  → anon/publishable key (public value, same one ships
 MCP_ALLOWED_CLIENT_IDS    → optional, comma-separated OAuth client allowlist (empty = accept any DCR-registered client)
 MCP_SERVER_PORT           → default 4201
 MCP_BASE_URL              → default http://localhost:4201
+PROSPIFY_APP_URL          → default https://prospify.app (backend URL for refresh/sync tools)
 ```
 
 Deliberately absent: `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. The MCP server never needs them.

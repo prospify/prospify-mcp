@@ -5,10 +5,21 @@
 import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import type { ProspifySession } from "../auth.js";
+import { syncSplitwiseForUser } from "../lib/backend-mcp.js";
 import { createUserSupabaseClient } from "../supabase-client.js";
 import { safeDbError } from "../utils.js";
 
 export function registerSplitTools(server: FastMCP<ProspifySession>) {
+	server.addTool({
+		name: "sync-splitwise-data",
+		description:
+			"Synchronize the user's connected Splitwise profile, friends, groups, and recent expenses into Prospify.",
+		annotations: { destructiveHint: false, idempotentHint: true },
+		parameters: z.object({}),
+		execute: async (_args, { session }) =>
+			JSON.stringify(await syncSplitwiseForUser(session!.accessToken), null, 2),
+	});
+
 	server.addTool({
 		name: "get-splitwise-status",
 		description: "Check if the user's Splitwise account is connected.",

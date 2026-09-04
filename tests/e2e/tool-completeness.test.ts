@@ -1,5 +1,5 @@
 /**
- * Tool completeness tests — verify all 25 tools are registered with
+ * Tool completeness tests — verify all 28 tools are registered with
  * proper schemas, descriptions, and annotations. This is the canonical
  * test that catches any tool that was accidentally removed or misconfigured.
  */
@@ -11,9 +11,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 let client: Client;
 let transport: StdioClientTransport;
 
-// Canonical list of all 25 tools with their expected properties
+// Canonical list of all 28 tools with their expected properties
 const EXPECTED_TOOLS = [
-	// Transactions (5)
+	// Connection health (1)
+	{ name: "get-connection-health", readOnly: true, requiredParams: [] },
+	// Transactions (6)
+	{ name: "refresh-transactions", readOnly: false, requiredParams: [] },
 	{ name: "get-transactions", readOnly: true, requiredParams: [] },
 	{ name: "edit-transaction", readOnly: false, requiredParams: ["transactionId"] },
 	{ name: "delete-transaction", readOnly: false, requiredParams: ["transactionId"] },
@@ -58,7 +61,8 @@ const EXPECTED_TOOLS = [
 		readOnly: false,
 		requiredParams: ["chargeTransactionId", "creditTransactionId", "creditAmount"],
 	},
-	// Splits (3)
+	// Splits (4)
+	{ name: "sync-splitwise-data", readOnly: false, requiredParams: [] },
 	{ name: "get-splitwise-status", readOnly: true, requiredParams: [] },
 	{ name: "get-splitwise-friends", readOnly: true, requiredParams: [] },
 	{ name: "get-splitwise-groups", readOnly: true, requiredParams: [] },
@@ -87,9 +91,9 @@ describe("Tool Completeness", () => {
 		}
 	});
 
-	test("exactly 25 tools are registered", async () => {
+	test("exactly 28 tools are registered", async () => {
 		const { tools } = await client.listTools();
-		expect(tools.length).toBe(25);
+		expect(tools.length).toBe(28);
 	});
 
 	test("no unexpected tools exist", async () => {

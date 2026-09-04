@@ -134,16 +134,18 @@ describe("MCP stdio transport", () => {
 		if (toolsMatch) {
 			const response = JSON.parse(toolsMatch[0]);
 			expect(response.result.tools).toBeArray();
-			// Should have 25 tools
-			expect(response.result.tools.length).toBe(25);
+			// Should have 28 tools
+			expect(response.result.tools.length).toBe(28);
 
 			// Verify some known tool names
 			const toolNames = response.result.tools.map((t: { name: string }) => t.name);
 			expect(toolNames).toContain("get-transactions");
+			expect(toolNames).toContain("get-connection-health");
 			expect(toolNames).toContain("get-accounts");
 			expect(toolNames).toContain("get-subscriptions");
 			expect(toolNames).toContain("edit-transaction");
 			expect(toolNames).toContain("mark-benefit-used");
+			expect(toolNames).toContain("sync-splitwise-data");
 		} else {
 			// If we can't parse the tools response, at least verify the server started
 			expect(output.length).toBeGreaterThan(0);
