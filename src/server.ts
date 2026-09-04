@@ -7,7 +7,8 @@
  * OAuth server. The MCP server itself holds no admin credentials and
  * no service role key; every request is scoped to the authenticated
  * user by attaching their JWT to a per-request Supabase client, and
- * row-level security is enforced by Postgres (`auth.uid()`).
+ * row-level security is enforced by Postgres (`auth.uid()`), and explicit MCP
+ * OAuth permission checks protect every side-effecting tool.
  *
  * See ./auth.ts and ./supabase-client.ts for the full architecture.
  */

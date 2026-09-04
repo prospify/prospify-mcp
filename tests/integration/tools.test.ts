@@ -39,7 +39,9 @@ describe("tool queries with user-scoped client", () => {
 		const { client } = await getClient();
 		const { data, error } = await client
 			.from("accounts")
-			.select("id, name, mask, type, subtype")
+			.select(
+				"id, name, mask, type, subtype, current_balance, available_balance, iso_currency_code, item_id, is_splitwise",
+			)
 			.limit(5);
 
 		expect(error).toBeNull();
@@ -48,6 +50,28 @@ describe("tool queries with user-scoped client", () => {
 			expect(data[0].id).toBeNumber();
 			expect(data[0].name).toBeString();
 		}
+	});
+
+	test("get-accounts: institution lookup uses the items view", async () => {
+		const { client } = await getClient();
+		const { data: accounts, error: accountsError } = await client
+			.from("accounts")
+			.select("id, item_id")
+			.limit(5);
+
+		expect(accountsError).toBeNull();
+		const itemIds = [
+			...new Set((accounts ?? []).map((account) => account.item_id).filter(Boolean)),
+		];
+		if (itemIds.length === 0) return;
+
+		const { data: items, error: itemsError } = await client
+			.from("items")
+			.select("id, plaid_institution_id")
+			.in("id", itemIds);
+
+		expect(itemsError).toBeNull();
+		expect(items).toBeArray();
 	});
 
 	test("get-user-profile: query user_profiles by id", async () => {
@@ -150,7 +174,9 @@ describe("tool queries with user-scoped client", () => {
 		const { client } = await getClient();
 		const { data, error } = await client
 			.from("credit_match_suggestions")
-			.select("id, confidence_score, status")
+			.select(
+				"id, credit_plaid_transaction_id, charge_plaid_transaction_id, confidence_score, status",
+			)
 			.eq("status", "pending")
 			.limit(5);
 

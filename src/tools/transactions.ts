@@ -12,6 +12,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import type { ProspifySession } from "../auth.js";
 import { env } from "../env.js";
+import { requireWriteAccess } from "../lib/permissions.js";
 import { createUserSupabaseClient } from "../supabase-client.js";
 import { escapeLikePattern, safeDbError } from "../utils.js";
 
@@ -23,6 +24,7 @@ export function registerTransactionTools(server: FastMCP<ProspifySession>) {
 		annotations: { destructiveHint: false, idempotentHint: false },
 		parameters: z.object({}),
 		execute: async (_args, { session }) => {
+			await requireWriteAccess(session!);
 			const response = await fetch(
 				`${env.PROSPIFY_APP_URL.replace(/\/$/, "")}/api/mcp/refresh-transactions`,
 				{
@@ -31,9 +33,13 @@ export function registerTransactionTools(server: FastMCP<ProspifySession>) {
 				},
 			);
 
-			const body = (await response.json().catch(() => null)) as
-				| { error?: string; success?: boolean; addedCount?: number; modifiedCount?: number; removedCount?: number }
-				| null;
+			const body = (await response.json().catch(() => null)) as {
+				error?: string;
+				success?: boolean;
+				addedCount?: number;
+				modifiedCount?: number;
+				removedCount?: number;
+			} | null;
 			if (!response.ok) {
 				throw new Error(body?.error || `Transaction refresh failed (${response.status})`);
 			}
@@ -133,6 +139,7 @@ export function registerTransactionTools(server: FastMCP<ProspifySession>) {
 			date: z.string().max(10).optional().describe("New date (YYYY-MM-DD)"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 
 			// RLS ensures the lookup only returns the transaction if the user
@@ -178,6 +185,7 @@ export function registerTransactionTools(server: FastMCP<ProspifySession>) {
 			transactionId: z.number().describe("Transaction ID to delete"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 
 			const { data: tx, error: txErr } = await client
@@ -215,6 +223,7 @@ export function registerTransactionTools(server: FastMCP<ProspifySession>) {
 			transactionId: z.number().describe("Transaction ID to restore"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 
 			const { data: tx } = await client
@@ -256,6 +265,7 @@ export function registerTransactionTools(server: FastMCP<ProspifySession>) {
 				.describe("Apply this category to all transactions from this merchant"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 
 			const { data: tx } = await client

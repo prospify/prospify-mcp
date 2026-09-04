@@ -21,27 +21,20 @@ export function registerAccountTools(server: FastMCP<ProspifySession>) {
 			const { data: accounts, error } = await client
 				.from("accounts")
 				.select(
-					"id, name, mask, type, subtype, current_balance, available_balance, iso_currency_code, plaid_institution_id, item_id, is_splitwise",
+					"id, name, mask, type, subtype, current_balance, available_balance, iso_currency_code, item_id, is_splitwise",
 				)
 				.order("name");
 
 			if (error) throw safeDbError("Fetch accounts", error);
 
-			const institutionIds = [
-				...new Set((accounts ?? []).map((a) => a.plaid_institution_id).filter(Boolean)),
-			];
-
-			let logoMap: Record<string, string> = {};
-			if (institutionIds.length > 0) {
-				const { data: logos } = await client
-					.from("institution_logos")
-					.select("plaid_institution_id, logo_base64")
-					.in("plaid_institution_id", institutionIds);
-
-				logoMap = Object.fromEntries(
-					(logos ?? []).map((l) => [l.plaid_institution_id, l.logo_base64]),
-				);
-			}
+			const itemIds = [...new Set((accounts ?? []).map((a) => a.item_id).filter(Boolean))];
+			const { data: items, error: itemsError } = itemIds.length
+				? await client.from("items").select("id, plaid_institution_id").in("id", itemIds)
+				: { data: [], error: null };
+			if (itemsError) throw safeDbError("Fetch account institutions", itemsError);
+			const institutionByItem = new Map(
+				(items ?? []).map((item) => [item.id, item.plaid_institution_id]),
+			);
 
 			const accountIds = (accounts ?? []).map((a) => a.id);
 			const { data: cardDetails } = await client
@@ -72,11 +65,9 @@ export function registerAccountTools(server: FastMCP<ProspifySession>) {
 						currentBalance: a.current_balance ? Number(a.current_balance) : null,
 						availableBalance: a.available_balance ? Number(a.available_balance) : null,
 						currency: a.iso_currency_code,
+						institutionId: a.item_id ? (institutionByItem.get(a.item_id) ?? null) : null,
 						isSplitwise: a.is_splitwise,
 						card: cardMap[a.id] ?? null,
-						institutionLogo: a.plaid_institution_id
-							? logoMap[a.plaid_institution_id] ?? null
-							: null,
 					})),
 				},
 				null,

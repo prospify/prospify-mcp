@@ -6,6 +6,7 @@ import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import type { ProspifySession } from "../auth.js";
 import { syncSplitwiseForUser } from "../lib/backend-mcp.js";
+import { requireWriteAccess } from "../lib/permissions.js";
 import { createUserSupabaseClient } from "../supabase-client.js";
 import { safeDbError } from "../utils.js";
 
@@ -16,8 +17,10 @@ export function registerSplitTools(server: FastMCP<ProspifySession>) {
 			"Synchronize the user's connected Splitwise profile, friends, groups, and recent expenses into Prospify.",
 		annotations: { destructiveHint: false, idempotentHint: true },
 		parameters: z.object({}),
-		execute: async (_args, { session }) =>
-			JSON.stringify(await syncSplitwiseForUser(session!.accessToken), null, 2),
+		execute: async (_args, { session }) => {
+			await requireWriteAccess(session!);
+			return JSON.stringify(await syncSplitwiseForUser(session!.accessToken), null, 2);
+		},
 	});
 
 	server.addTool({

@@ -13,14 +13,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { ProspifySession } from "../auth.js";
 import { createUserSupabaseClient } from "../supabase-client.js";
+import { requireWriteAccess } from "../lib/permissions.js";
 import { escapeLikePattern, safeDbError } from "../utils.js";
 
 async function assertOwnsAccount(client: SupabaseClient, accountId: number): Promise<void> {
-	const { data } = await client
-		.from("accounts")
-		.select("id")
-		.eq("id", accountId)
-		.maybeSingle();
+	const { data } = await client.from("accounts").select("id").eq("id", accountId).maybeSingle();
 	if (!data) throw new Error("Account not found or access denied");
 }
 
@@ -34,10 +31,9 @@ export function registerBenefitTools(server: FastMCP<ProspifySession>) {
 		execute: async (_args, { session }) => {
 			const client = createUserSupabaseClient(session!.accessToken);
 
-			const { data: rpcData, error: rpcErr } = await client.rpc(
-				"get_user_cards_with_benefits",
-				{ p_user_id: session!.userId },
-			);
+			const { data: rpcData, error: rpcErr } = await client.rpc("get_user_cards_with_benefits", {
+				p_user_id: session!.userId,
+			});
 
 			if (!rpcErr && rpcData) {
 				return JSON.stringify(rpcData, null, 2);
@@ -45,9 +41,7 @@ export function registerBenefitTools(server: FastMCP<ProspifySession>) {
 
 			// Fallback path: query through the accounts view (RLS-scoped) and
 			// intersect with cards that have active benefit configs.
-			const { data: accounts, error: accErr } = await client
-				.from("accounts")
-				.select("id, mask");
+			const { data: accounts, error: accErr } = await client.from("accounts").select("id, mask");
 
 			if (accErr) throw safeDbError("Fetch accounts", accErr);
 			const accountIds = (accounts ?? []).map((a) => a.id);
@@ -133,10 +127,7 @@ export function registerBenefitTools(server: FastMCP<ProspifySession>) {
 				.gte("period_start", `${viewYear}-01-01`)
 				.lte("period_end", `${viewYear + 1}-01-01`);
 
-			const totalValueCaptured = (usages ?? []).reduce(
-				(sum, u) => sum + Number(u.amount_used),
-				0,
-			);
+			const totalValueCaptured = (usages ?? []).reduce((sum, u) => sum + Number(u.amount_used), 0);
 
 			const catalog = cardDetails.credit_card_catalog as unknown as {
 				issuer: string;
@@ -238,6 +229,7 @@ export function registerBenefitTools(server: FastMCP<ProspifySession>) {
 			note: z.string().max(1000).optional().describe("Optional note"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 
 			const { data: config } = await client
@@ -273,10 +265,7 @@ export function registerBenefitTools(server: FastMCP<ProspifySession>) {
 					.gte("period_start", periodStart.toISOString())
 					.lte("period_end", periodEnd.toISOString());
 
-				const totalUsed = (existingUsages ?? []).reduce(
-					(sum, u) => sum + Number(u.amount_used),
-					0,
-				);
+				const totalUsed = (existingUsages ?? []).reduce((sum, u) => sum + Number(u.amount_used), 0);
 
 				if (totalUsed + args.amountUsed > configAmount * 2) {
 					throw new Error(
@@ -310,6 +299,7 @@ export function registerBenefitTools(server: FastMCP<ProspifySession>) {
 			accountId: z.number().describe("Account ID of the credit card"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 			await assertOwnsAccount(client, args.accountId);
 

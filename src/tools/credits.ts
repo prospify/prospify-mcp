@@ -5,6 +5,7 @@
 import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import type { ProspifySession } from "../auth.js";
+import { requireWriteAccess } from "../lib/permissions.js";
 import { createUserSupabaseClient } from "../supabase-client.js";
 import { escapeLikePattern, safeDbError } from "../utils.js";
 
@@ -23,7 +24,7 @@ export function registerCreditTools(server: FastMCP<ProspifySession>) {
 			const { data, error } = await client
 				.from("credit_match_suggestions")
 				.select(
-					"id, credit_plaid_transaction_id, charge_plaid_transaction_id, confidence_score, credit_type, status",
+					"id, credit_plaid_transaction_id, charge_plaid_transaction_id, confidence_score, status",
 				)
 				.eq("status", "pending")
 				.order("confidence_score", { ascending: false })
@@ -52,7 +53,6 @@ export function registerCreditTools(server: FastMCP<ProspifySession>) {
 				return {
 					suggestionId: m.id,
 					confidence: m.confidence_score,
-					creditType: m.credit_type,
 					credit: credit
 						? {
 								name: credit.name,
@@ -84,6 +84,7 @@ export function registerCreditTools(server: FastMCP<ProspifySession>) {
 			suggestionId: z.string().max(200).describe("Match suggestion ID to confirm"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 
 			const { data: suggestion } = await client
@@ -129,6 +130,7 @@ export function registerCreditTools(server: FastMCP<ProspifySession>) {
 			suggestionId: z.string().max(200).describe("Match suggestion ID to reject"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 
 			const { error } = await client
@@ -195,6 +197,7 @@ export function registerCreditTools(server: FastMCP<ProspifySession>) {
 			note: z.string().max(1000).optional().describe("Optional note"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 
 			const { data: chargeTx } = await client

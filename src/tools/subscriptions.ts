@@ -5,6 +5,7 @@
 import type { FastMCP } from "fastmcp";
 import { z } from "zod";
 import type { ProspifySession } from "../auth.js";
+import { requireWriteAccess } from "../lib/permissions.js";
 import { createUserSupabaseClient } from "../supabase-client.js";
 import { safeDbError } from "../utils.js";
 
@@ -76,9 +77,7 @@ export function registerSubscriptionTools(server: FastMCP<ProspifySession>) {
 
 					if (cv > 0.2) continue;
 
-					const sortedDates = group.dates
-						.map((d) => new Date(d).getTime())
-						.sort((a, b) => a - b);
+					const sortedDates = group.dates.map((d) => new Date(d).getTime()).sort((a, b) => a - b);
 					const intervals = [];
 					for (let i = 1; i < sortedDates.length; i++) {
 						intervals.push((sortedDates[i] - sortedDates[i - 1]) / (1000 * 60 * 60 * 24));
@@ -139,6 +138,7 @@ export function registerSubscriptionTools(server: FastMCP<ProspifySession>) {
 			accountId: z.number().describe("Account ID"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 
 			const { error } = await client.from("subscription_dismissals").insert({
@@ -161,6 +161,7 @@ export function registerSubscriptionTools(server: FastMCP<ProspifySession>) {
 			accountId: z.number().describe("Account ID"),
 		}),
 		execute: async (args, { session }) => {
+			await requireWriteAccess(session!);
 			const client = createUserSupabaseClient(session!.accessToken);
 
 			const { error } = await client

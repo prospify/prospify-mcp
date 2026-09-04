@@ -65,17 +65,17 @@ If you want to run your own instance against your Supabase project, see [Develop
 During the consent flow you can choose:
 
 - **Read-only** (recommended, default) — The assistant can see transactions, accounts, credit card benefits, subscriptions, and splits. It can analyze and report, but cannot change anything in Prospify.
-- **Read and write** — Everything above, plus the assistant can update transaction labels and categories, mark benefits as used, confirm credit matches, and create expense splits in Splitwise.
+- **Read and write** — Everything above, plus the assistant can refresh Plaid transactions (once per hour), synchronize Splitwise (once per hour), update transaction labels and categories, mark benefits as used, confirm credit matches, and create expense splits in Splitwise.
 
 You can revoke access or change permission level anytime from **Profile → Connected apps** at [prospify.app](https://prospify.app).
 
 ## Tools
 
-The following Prospify tools are available to the LLM. Every tool runs against the authenticated user's data and is scoped by Postgres row-level security — a compromised MCP client cannot leak another user's data.
+The following Prospify tools are available to the LLM. Every tool runs against the authenticated user's data and is scoped by Postgres row-level security. Side-effecting tools also require an explicit read-and-write OAuth grant.
 
 ### Transactions
 
-- `refresh-transactions`: Force-refresh the user's connected bank and credit-card transactions from Plaid and return added, modified, and removed counts.
+- `refresh-transactions`: Force-refresh the user's connected bank and credit-card transactions from Plaid and return added, modified, and removed counts. Requires read-and-write access and is limited to once per hour.
 - `get-transactions`: List transactions with optional filters (account, date range, search, category, limit, offset). Returns name, amount, date, category, account, and split info.
 - `edit-transaction`: Edit a transaction's display name, amount, or date. Changes are stored as overrides — original Plaid data is preserved.
 - `delete-transaction`: Soft-delete a transaction (hides it from views; reversible).
@@ -114,7 +114,7 @@ The following Prospify tools are available to the LLM. Every tool runs against t
 
 ### Splitwise
 
-- `sync-splitwise-data`: Synchronize the connected Splitwise profile, friends, groups, and recent expenses into Prospify.
+- `sync-splitwise-data`: Synchronize the connected Splitwise profile, friends, groups, and recent expenses into Prospify. Requires read-and-write access and is limited to once per hour.
 - `get-splitwise-status`: Check whether the user's Splitwise account is connected.
 - `get-splitwise-friends`: List Splitwise friends.
 - `get-splitwise-groups`: List Splitwise groups with members.
@@ -162,7 +162,7 @@ Most MCP clients (Claude Desktop, Cursor, etc.) ask you to manually approve each
 For anyone interested in how the sandbox is enforced:
 
 - Prospify MCP is a pure [OAuth 2.1 Protected Resource](https://datatracker.ietf.org/doc/html/rfc9728) (MCP spec 2025-03-26). It holds no admin credentials — authentication is delegated entirely to Supabase Auth.
-- Tokens are verified against Supabase's JWKS (ES256). Every tool call builds a per-request Supabase client with the caller's JWT attached, and row-level security via `auth.uid()` is the sole authorization layer.
+- Tokens are verified against Supabase's JWKS (ES256). Every tool call builds a per-request Supabase client with the caller's JWT attached; row-level security via `auth.uid()` scopes data, and explicit MCP permission checks protect mutations.
 - A compromise of the server's environment leaks only the Supabase publishable (anon) key — the same value that ships in the web client.
 
 ## Development
